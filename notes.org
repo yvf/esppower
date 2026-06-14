@@ -1,3 +1,17 @@
 * Prompt(s)
 
 ** Green field prompt
+
+* Power detection
+
+** Potential solutions
+
+The ACS712 original proposed solution won't work for 220 AC. Instead considering either an optocoupler (but needs 220v direct connection), or an EMF-based solution.
+
+*** EMF Solution with BCS547 amplification
+
+* Actuator
+
+** Device
+
+Actuonix L12 micro linear actuator L12-50-210-12-I
