@@ -125,15 +125,16 @@ release.
    terminal (or enter the manual pairing code). Commissioning runs over BLE,
    then the device joins Thread via your border router (see above).
 
-> **Stage 1 (current):** the device commissions as a single **On/Off** endpoint
-> (rs-matter's stock test logic) — this validates the full Thread+BLE pipeline
-> end-to-end. It is **not yet wired to the actuator**, and there is no Contact
-> Sensor endpoint.
+> **Stages 1–2 (done):** the device commissions as a single **On/Off** endpoint
+> wired to the actuator — toggling it **ON in HomeKit fires one reset cycle**
+> (`ToController::ManualTrigger`). The controller reports cycle progress back, so
+> the tile shows ON during the ~16 s cycle and returns to OFF afterwards.
+> (It still advertises the On/Off "light" device type; switching to a plug/outlet
+> icon is a one-line cosmetic change in `node.rs` once commissioning is confirmed.)
 >
-> **Stage 2 (planned):** replace with a custom On/Off Plug-In Unit whose toggle
-> fires an actuator reset cycle, plus a Contact Sensor endpoint reflecting the
-> EMF power-presence state. The RCD reset state machine already runs
-> independently of Matter on its own thread.
+> **Stage 3 (planned):** a Contact Sensor endpoint reflecting EMF power-presence
+> (`ToMatter::SetContactClosed`), plus persistent fabric storage. The RCD reset
+> state machine already runs independently of Matter on its own thread.
 
 ## Adjusting the detection threshold
 

@@ -6,34 +6,42 @@
 //!     serial console automatically by `run_coex` when no fabric is provisioned),
 //!   - then operates over Thread (joining the network advertised by an Apple TV /
 //!     HomePod Thread Border Router),
-//!   - persists fabric/ACL data in NVS via `EspKvBlobStore`.
+//!   - persists fabric/ACL data in NVS via `EspKvBlobStore` (currently a no-op
+//!     `DummyKvBlobStore` — see the KV note in `run`).
 //!
-//! STAGE 1 (current): a single On/Off endpoint using rs-matter's stock
-//! `TestOnOffDeviceLogic`, purely to validate that the device builds, boots,
-//! prints a scannable QR, and commissions into Apple Home. The On/Off state is
-//! NOT yet wired to the actuator, and there is no Contact Sensor endpoint yet —
-//! that is Stage 2 (see `matter` module docs).
+//! Endpoint 1 is an On/Off endpoint backed by [`PlugHooks`]: toggling it ON in
+//! HomeKit fires one actuator reset cycle, and the controller's cycle state is
+//! reflected back into the tile. (Cluster metadata is borrowed from rs-matter's
+//! stock On/Off logic; the device still advertises as an On/Off "light" — a
+//! plug/outlet device type and a Contact Sensor endpoint are the remaining
+//! refinements, see `matter` module docs.)
 //!
 //! The RCD reset state machine runs independently on its own thread (see
 //! `main.rs`); it deliberately does NOT depend on Matter/Thread connectivity.
 
 use core::pin::pin;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use esp_idf_matter::init_async_io;
 use esp_idf_matter::matter::clusters;
 use esp_idf_matter::matter::crypto::{default_crypto, Crypto};
-use esp_idf_matter::matter::dm::clusters::app::on_off::{self, OnOffHandler, OnOffHooks};
 use esp_idf_matter::matter::dm::clusters::app::on_off::test::TestOnOffDeviceLogic;
+use esp_idf_matter::matter::dm::clusters::app::on_off::{
+    self, EffectVariantEnum, OnOffHandler, OnOffHooks, OutOfBandMessage, StartUpOnOffEnum,
+};
 use esp_idf_matter::matter::dm::clusters::desc::{self, ClusterHandler as _, DescHandler};
 use esp_idf_matter::matter::dm::devices::test::{
     DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET,
 };
 use esp_idf_matter::matter::dm::devices::DEV_TYPE_ON_OFF_LIGHT;
 use esp_idf_matter::matter::dm::{
-    Async, Dataver, EmptyHandler, Endpoint, EpClMatcher, Node,
+    Async, Cluster, Dataver, EmptyHandler, Endpoint, EpClMatcher, Node,
 };
 use esp_idf_matter::matter::devices;
+use esp_idf_matter::matter::error::Error;
 use esp_idf_matter::matter::persist::DummyKvBlobStore;
+use esp_idf_matter::matter::tlv::Nullable;
 use esp_idf_matter::matter::utils::init::InitMaybeUninit;
 use esp_idf_matter::wireless::{EspMatterThread, EspThreadMatterStack};
 
@@ -43,11 +51,89 @@ use esp_idf_svc::hal::modem::Modem;
 use esp_idf_svc::io::vfs::MountedEventfs;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
+
 use alloc::sync::Arc;
-use log::info;
+use log::{info, warn};
 use static_cell::StaticCell;
 
+use crate::matter::{ToController, ToMatter};
+
 extern crate alloc;
+
+/// Channel endpoint types shared with the controller task (capacity 4).
+type CtrlSender = Sender<'static, CriticalSectionRawMutex, ToController, 4>;
+type MatterReceiver = Receiver<'static, CriticalSectionRawMutex, ToMatter, 4>;
+
+/// On/Off device logic for the RCD reset trigger (Endpoint 1).
+///
+/// HomeKit toggling the endpoint ON fires one actuator reset cycle
+/// (`ToController::ManualTrigger`). The controller reports cycle progress back
+/// via `ToMatter::SetPlugOnOff`, which `run()` reflects into the reported
+/// attribute (ON while a cycle runs, OFF when it completes) so the tile tracks
+/// reality. Re-triggers while a cycle is already running are ignored by the
+/// controller, so firing on every ON is safe.
+pub struct PlugHooks {
+    on: AtomicBool,
+    ctrl_tx: CtrlSender,
+    matter_rx: MatterReceiver,
+}
+
+impl PlugHooks {
+    pub fn new(ctrl_tx: CtrlSender, matter_rx: MatterReceiver) -> Self {
+        Self {
+            on: AtomicBool::new(false),
+            ctrl_tx,
+            matter_rx,
+        }
+    }
+}
+
+impl OnOffHooks for PlugHooks {
+    /// Reuse rs-matter's stock On/Off cluster metadata (validated in Stage 1).
+    const CLUSTER: Cluster<'static> = TestOnOffDeviceLogic::CLUSTER;
+
+    fn on_off(&self) -> bool {
+        self.on.load(Ordering::Relaxed)
+    }
+
+    fn set_on_off(&self, on: bool) {
+        self.on.store(on, Ordering::Relaxed);
+        // ON from HomeKit = "reset now". The controller ignores triggers while a
+        // cycle is already running, so firing on every ON is safe.
+        if on && self.ctrl_tx.try_send(ToController::ManualTrigger).is_err() {
+            warn!("Matter: controller channel full — manual trigger dropped");
+        }
+    }
+
+    fn start_up_on_off(&self) -> Nullable<StartUpOnOffEnum> {
+        // No persisted power-on behaviour: the trigger always rests OFF.
+        Nullable::none()
+    }
+
+    fn set_start_up_on_off(&self, _value: Nullable<StartUpOnOffEnum>) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn handle_off_with_effect(&self, _effect: EffectVariantEnum) {}
+
+    async fn run<F: Fn(OutOfBandMessage)>(&self, notify: F) {
+        // Reflect controller-driven plug state into the cluster attribute.
+        // `OutOfBandMessage::Update` re-reads `on_off()` and reports to
+        // subscribers WITHOUT calling `set_on_off`, so there is no trigger loop.
+        loop {
+            match self.matter_rx.receive().await {
+                ToMatter::SetPlugOnOff(on) => {
+                    self.on.store(on, Ordering::Relaxed);
+                    notify(OutOfBandMessage::Update);
+                }
+                // Contact Sensor endpoint not implemented yet (Stage 3).
+                ToMatter::SetContactClosed(_) => {}
+            }
+        }
+    }
+}
 
 /// Endpoint 0 (the hidden Matter system endpoint) is always present; functional
 /// endpoints start at 1.
@@ -68,7 +154,7 @@ const NODE: Node = Node {
         Endpoint::new(
             LIGHT_ENDPOINT_ID,
             devices!(DEV_TYPE_ON_OFF_LIGHT),
-            clusters!(DescHandler::CLUSTER, TestOnOffDeviceLogic::CLUSTER),
+            clusters!(DescHandler::CLUSTER, PlugHooks::CLUSTER),
         ),
     ],
 };
@@ -77,8 +163,15 @@ const NODE: Node = Node {
 /// `esp_idf_svc::hal::task::block_on` on a dedicated, large-stacked thread.
 ///
 /// `modem` is the radio peripheral (Thread + BLE); it is moved in from `main`
-/// after the controller peripherals have been split off.
-pub async fn run(mut modem: Modem<'static>) -> Result<(), anyhow::Error> {
+/// after the controller peripherals have been split off. `ctrl_tx`/`matter_rx`
+/// are the channel endpoints shared with the controller task: HomeKit toggles
+/// fire `ToController::ManualTrigger`, and controller cycle state arrives as
+/// `ToMatter::SetPlugOnOff`.
+pub async fn run(
+    mut modem: Modem<'static>,
+    ctrl_tx: CtrlSender,
+    matter_rx: MatterReceiver,
+) -> Result<(), anyhow::Error> {
     // Initialize the Matter stack (can be done only once per boot).
     let stack = MATTER_STACK
         .uninit()
@@ -106,20 +199,17 @@ pub async fn run(mut modem: Modem<'static>) -> Result<(), anyhow::Error> {
     let crypto = default_crypto(rand::thread_rng(), DAC_PRIVKEY);
     let mut weak_rand = crypto.weak_rand()?;
 
-    // STAGE 1: stock test On/Off device logic on Endpoint 1.
+    // On/Off device logic on Endpoint 1: HomeKit toggle → actuator reset cycle.
     let on_off = OnOffHandler::new_standalone(
         Dataver::new_rand(&mut weak_rand),
         LIGHT_ENDPOINT_ID,
-        TestOnOffDeviceLogic::new(true),
+        PlugHooks::new(ctrl_tx, matter_rx),
     );
 
     // Chain our endpoint-1 clusters onto the (root) system clusters.
     let handler = EmptyHandler
         .chain(
-            EpClMatcher::new(
-                Some(LIGHT_ENDPOINT_ID),
-                Some(TestOnOffDeviceLogic::CLUSTER.id),
-            ),
+            EpClMatcher::new(Some(LIGHT_ENDPOINT_ID), Some(PlugHooks::CLUSTER.id)),
             on_off::HandlerAsyncAdaptor(&on_off),
         )
         .chain(

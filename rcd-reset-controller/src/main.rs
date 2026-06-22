@@ -16,8 +16,9 @@
 //!      device keeps resetting the breaker even with no network.
 //!
 //! The two communicate over static `embassy-sync` channels (thread-safe via
-//! `CriticalSectionRawMutex`). NOTE (Stage 1): the Matter side does not yet read
-//! or write these channels — that wiring is Stage 2.
+//! `CriticalSectionRawMutex`): HomeKit toggling the plug sends
+//! `ToController::ManualTrigger`; the controller reports cycle state back as
+//! `ToMatter::SetPlugOnOff`, which the Matter handler reflects into the tile.
 
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_idf_svc::hal::peripherals::Peripherals;
@@ -63,8 +64,12 @@ fn main() -> Result<(), anyhow::Error> {
     #[cfg(feature = "sensor-ct")]
     let (adc1, sensor_pin) = (peripherals.adc1, peripherals.pins.gpio1);
 
+    // Controller holds ctrl_rx (receives triggers) + matter_tx (sends state);
+    // the Matter task holds the opposite ends.
     let ctrl_rx = CTRL_CHANNEL.receiver();
+    let ctrl_tx = CTRL_CHANNEL.sender();
     let matter_tx = MATTER_CHANNEL.sender();
+    let matter_rx = MATTER_CHANNEL.receiver();
 
     // ── Matter thread (Thread + BLE commissioning) ────────────────────────────
     // Run in a higher-priority, large-stacked thread (see module docs).
@@ -77,7 +82,7 @@ fn main() -> Result<(), anyhow::Error> {
     std::thread::Builder::new()
         .stack_size(MATTER_THREAD_STACK)
         .spawn(move || {
-            if let Err(e) = block_on(matter::node::run(modem)) {
+            if let Err(e) = block_on(matter::node::run(modem, ctrl_tx, matter_rx)) {
                 error!("Matter stack exited with error: {e:?}");
             }
         })?;

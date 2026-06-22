@@ -10,13 +10,16 @@
 //!   Endpoint 2 — Contact Sensor (0x0015)       — downstream power state
 //!
 //! Staging:
-//!   - STAGE 1 (current): Endpoint 1 uses rs-matter's stock On/Off test logic to
-//!     prove build + boot + QR + commissioning end-to-end. Not yet wired to the
-//!     actuator; no Contact Sensor endpoint yet.
-//!   - STAGE 2: replace with a custom On/Off handler that emits
-//!     [`ToController::ManualTrigger`], add the Contact Sensor endpoint fed by
-//!     [`ToMatter::SetContactClosed`], and persist fabric data via
-//!     `EspKvBlobStore`.
+//!   - STAGE 1 (done): boot the Thread+BLE stack, print the QR, commission.
+//!   - STAGE 2 (done): Endpoint 1 On/Off backed by `node::PlugHooks` — HomeKit
+//!     toggle emits [`ToController::ManualTrigger`]; controller cycle state is
+//!     reflected back via [`ToMatter::SetPlugOnOff`]. (Endpoint 1 still
+//!     advertises the On/Off "light" device type; switching to a plug/outlet
+//!     device type is a cosmetic follow-up.)
+//!   - STAGE 3 (pending): add the Contact Sensor endpoint (Boolean State, fed by
+//!     [`ToMatter::SetContactClosed`]) and persist fabric data via
+//!     `EspKvBlobStore`. rs-matter has no stock Boolean State handler, so this
+//!     needs a from-scratch cluster + handler.
 
 pub mod node;
 
