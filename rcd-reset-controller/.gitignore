@@ -10,6 +10,7 @@
 # Build/test log captures
 /build.out
 /test.out
+/build_matter*.log
 
 # Editor backups / autosaves / locks
 *~

@@ -1,16 +1,23 @@
-//! Matter protocol integration.
+//! Matter protocol integration (Matter over Thread, commissioned over BLE).
 //!
-//! This module exposes:
-//! - Channel message types for controller ↔ Matter communication.
-//! - [`MatterNode`]: the rs-matter based node that implements the data model.
+//! Built on `esp-idf-matter`, which wraps `rs-matter` with Espressif's
+//! Thread/BLE transports and NVS persistence. The stack is booted and run by
+//! [`node::run`] on a dedicated thread (see `main.rs`).
 //!
-//! Data model (Matter node, single device):
-//!   Endpoint 0 — Root Node
-//!   Endpoint 1 — On/Off Plug-In Unit (0x010A) — actuator control
+//! Device model (Matter node):
+//!   Endpoint 0 — Root Node (hidden system clusters, provided by the stack)
+//!   Endpoint 1 — On/Off Plug-In Unit (0x010A) — actuator trigger
 //!   Endpoint 2 — Contact Sensor (0x0015)       — downstream power state
+//!
+//! Staging:
+//!   - STAGE 1 (current): Endpoint 1 uses rs-matter's stock On/Off test logic to
+//!     prove build + boot + QR + commissioning end-to-end. Not yet wired to the
+//!     actuator; no Contact Sensor endpoint yet.
+//!   - STAGE 2: replace with a custom On/Off handler that emits
+//!     [`ToController::ManualTrigger`], add the Contact Sensor endpoint fed by
+//!     [`ToMatter::SetContactClosed`], and persist fabric data via
+//!     `EspKvBlobStore`.
 
-pub mod commissioning;
-pub mod endpoints;
 pub mod node;
 
 // ─── Inter-task channel messages ─────────────────────────────────────────────

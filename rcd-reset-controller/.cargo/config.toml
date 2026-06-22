@@ -17,8 +17,11 @@ rustflags = [
 build-std = ["std", "panic_abort"]
 
 [env]
-# ESP-IDF version — must match what is installed / fetched by embuild
-ESP_IDF_VERSION       = "v5.2.5"
+# ESP-IDF version — must match what is installed / fetched by embuild.
+# v5.5.x is required by esp-idf-matter's Thread support (the esp-rs Thread driver
+# gates functionality on patch levels ≥5.2.6/≥5.5.0; the esp-idf-matter reference
+# is built against v5.5.3, so we match it to stay on the known-good path).
+ESP_IDF_VERSION       = "v5.5.3"
 # Target chip — esp-idf-sys reads `MCU`, NOT `IDF_TARGET`, to choose the chip.
 # The riscv32imac-esp-espidf triple maps to [esp32c6, esp32c61, esp32c5, esp32h2];
 # without MCU set, esp-idf-sys silently defaults to the FIRST entry (esp32c6),

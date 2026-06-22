@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,  Size, Flags
+# Matter over Thread+BLE needs a large app partition (~2 MB image) plus an NVS
+# namespace for fabric/ACL persistence. Offsets are auto-assigned. Requires 4 MB flash.
+nvs,      data, nvs,     ,        0x6000,
+phy_init, data, phy,     ,        0x1000,
+# Fill the rest of 4 MB flash (~3.9 MB). A debug Matter+Thread image is ~3.7 MB;
+# a release image is far smaller. Shrink this if your module has <4 MB flash.
+factory,  app,  factory, ,        0x3E0000,

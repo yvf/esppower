@@ -8,12 +8,17 @@ espup install          # installs the `esp` Rust fork + RISC-V/Xtensa targets
 source ~/export-esp.sh # add to your shell profile
 ```
 
-## 2. Install ESP-IDF v5.3
+## 2. ESP-IDF v5.5.3 (auto-fetched)
 
-```bash
-cargo install esp-idf-sys --example install_esp_idf  # or use idf.py
-# Alternatively let embuild fetch it automatically on first build (see build.rs).
-```
+`embuild` fetches ESP-IDF **v5.5.3** automatically on first build (pinned in
+`.cargo/config.toml` via `ESP_IDF_VERSION`). v5.5.x is required by the Matter
+Thread support (see the vendored-patch note below). The first build is long
+(downloads + compiles ESP-IDF with OpenThread + BLE).
+
+> If you previously built against a different ESP-IDF version, a stale
+> `target/.../build/esp-idf-sys-*/` dir will cause confusing cmake/toolchain
+> errors that `cargo clean -p esp-idf-sys` does NOT fix. Delete it manually:
+> `rm -rf target/riscv32imac-esp-espidf/*/build/esp-idf-sys-*` and rebuild.
 
 ## 3. Install flash + monitor tools
 
@@ -60,18 +65,75 @@ cargo test --test hw_sensor     --target riscv32imac-esp-espidf --release
 cargo test --test hw_full_cycle --target riscv32imac-esp-espidf --release
 ```
 
+## ⚠️ Vendored `esp-idf-matter` patch (ESP32-H2 Thread support)
+
+The Matter-over-Thread stack uses [`esp-idf-matter`](https://github.com/sysgrok/esp-idf-matter),
+**vendored locally under `vendor/esp-idf-matter/` and patched**, rather than
+pulled directly as a git dependency. Why:
+
+- Upstream `esp-idf-matter` (rev `a8a1b98`, current `master` HEAD as of writing)
+  gates its high-level Thread stack (`EspThreadMatterStack`, `EspMatterThread`,
+  in `src/wireless/`) behind `#[cfg(all(not(esp32h2), …, esp_idf_comp_esp_wifi_enabled))]`.
+  So on the **pure-Thread ESP32-H2 (no Wi-Fi)** those types don't exist — the
+  upstream `light_thread` example actually only compiles for the Wi-Fi-capable
+  ESP32-C6. H2 Matter-over-Thread is effectively unfinished upstream.
+- The underlying pieces it needs (the `thread` and `ble` modules, the generic
+  `rs-matter-stack` Thread stack) *are* available on H2. The exclusion was an
+  overly-broad module gate, not a fundamental limitation.
+
+**The patch** (see `LOCAL PATCH (RCD)` comments in `vendor/esp-idf-matter/src/`):
+
+1. `src/lib.rs` — relax the `pub mod wireless` gate from "not H2 + Wi-Fi" to
+   "Wi-Fi **or** (OpenThread + 802.15.4)", so the module compiles on H2.
+2. `src/wireless.rs` — additionally exclude the **`wifi` submodule** on H2 with
+   `not(esp32h2)`, because the `esp_wifi` *component* cfg is set on H2 even
+   though the chip has no radio and `esp_idf_svc::wifi` is absent.
+
+`Cargo.toml` points at `{ path = "vendor/esp-idf-matter" }`. **Revisit / drop the
+vendored copy once upstream supports H2 Thread directly.** To re-sync with a
+newer upstream, re-vendor and re-apply the two patches above.
+
+## Thread Border Router requirement
+
+Matter-over-Thread needs a **Thread Border Router that is also an Apple Home
+hub** on the same network to commission and reach the device:
+- HomePod mini / HomePod (2nd gen), or
+- Apple TV 4K (Wi-Fi + Ethernet / Thread-capable model).
+
+There is no firmware difference between them — commissioning is over BLE, then
+the device joins Thread via whichever border router is present.
+
+## Flash image size
+
+A **debug** Matter+Thread+BLE image is ~3.7 MB; the `partitions.csv` factory
+partition is sized to ~3.9 MB to fit it on a **4 MB-flash** H2 module. A
+**release** image (`cargo build --release`) is far smaller and is recommended
+for actual use. If your module has <4 MB flash, shrink `factory` and build
+release.
+
 ## Matter commissioning (first boot)
 
-1. Flash the firmware.
-2. Open the serial monitor — the commissioning QR payload is logged:
+1. Flash the firmware (`cargo run --release`, which runs `./flash.sh`).
+2. Open the serial monitor. On first boot (no fabric provisioned yet) the Matter
+   stack prints, automatically, a **scannable ASCII QR code** plus the text
+   payload and manual pairing code:
    ```
-   Matter commissioning QR payload:  MT:XXXXXXXX
+   SetupQRCode: [MT:XXXXXXXX]
+   PairingCode: [XXXX-XXX-XXXX]
    ```
-3. Go to a QR-code generator, paste the `MT:…` string, print the code.
-4. On iPhone: Home app → + → Add Accessory → scan the QR code.
-5. The device appears as two tiles:
-   - **RCD Resetter** — tap to fire a reset cycle
-   - **Power Sensor** — shows "Closed" (power on) or "Open" (RCD tripped)
+3. On iPhone: Home app → + → Add Accessory → scan the QR directly from the
+   terminal (or enter the manual pairing code). Commissioning runs over BLE,
+   then the device joins Thread via your border router (see above).
+
+> **Stage 1 (current):** the device commissions as a single **On/Off** endpoint
+> (rs-matter's stock test logic) — this validates the full Thread+BLE pipeline
+> end-to-end. It is **not yet wired to the actuator**, and there is no Contact
+> Sensor endpoint.
+>
+> **Stage 2 (planned):** replace with a custom On/Off Plug-In Unit whose toggle
+> fires an actuator reset cycle, plus a Contact Sensor endpoint reflecting the
+> EMF power-presence state. The RCD reset state machine already runs
+> independently of Matter on its own thread.
 
 ## Adjusting the detection threshold
 

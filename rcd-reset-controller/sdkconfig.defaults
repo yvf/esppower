@@ -7,10 +7,29 @@ CONFIG_OPENTHREAD_JOINER=n
 # ─── IEEE 802.15.4 radio (ESP32-H2 native) ───────────────────────────────────
 CONFIG_IEEE802154_ENABLED=y
 
-# ─── Matter ──────────────────────────────────────────────────────────────────
-# rs-matter handles the Matter protocol layer; ESP-IDF provides OpenThread transport.
-# If using esp-matter C++ component uncomment these:
-# CONFIG_ESP_MATTER_ENABLE_DATA_MODEL=y
+# ─── Bluetooth LE — required for Matter commissioning (HomeKit pairs over BLE) ─
+# Bluedroid host, BLE-only. Matches the esp-idf-matter reference config.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=y
+CONFIG_BT_CLASSIC_ENABLED=n
+CONFIG_BT_BTC_TASK_STACK_SIZE=15000
+CONFIG_BT_A2DP_ENABLE=n
+CONFIG_BT_BLE_42_FEATURES_SUPPORTED=y
+CONFIG_BT_BLE_50_FEATURES_SUPPORTED=n
+CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
+
+# ─── Thread + BLE coexistence (concurrent commissioning) ─────────────────────
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+# ─── Partition table — Matter+Thread+BLE image is large (~2 MB) ───────────────
+# 3 MB factory app + 24 KB NVS (Matter fabric/ACL persistence). Needs 4 MB flash.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+# NOTE: must be ABSOLUTE. esp-idf-sys sets the CMake PROJECT_DIR to its own
+# generated build dir, so a relative path resolves there (not this crate root)
+# and the partition tool can't find the file. This absolute path is the one
+# machine-specific line in this config — update it if the repo moves.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="/Users/yan/dev/rust/esppower1/rcd-reset-controller/partitions.csv"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 
 # ─── NVS (Non-Volatile Storage) — persists Matter fabric + commissioner data ──
 CONFIG_NVS_FLASH_PARTITION_SIZE=0x6000
@@ -29,10 +48,17 @@ CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_TASK_FUNCTION_WRAPPER=n
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+# Larger system/idle stacks — rs-matter + OpenThread callbacks need headroom.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096
+CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=4096
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+# System (not RTOS-tick) timestamps + colors so the printed QR code is not
+# distorted by misaligned log prefixes.
+CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
+CONFIG_LOG_COLORS=y
 
 # ─── Stack sizes ─────────────────────────────────────────────────────────────
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

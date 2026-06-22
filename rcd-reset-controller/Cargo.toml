@@ -43,6 +43,8 @@ sensor-ct   = []
 [dependencies]
 # ESP-IDF HAL and services — verify latest compatible versions at https://github.com/esp-rs
 esp-idf-svc = { version = "0.52", features = [
+    "std",
+    "alloc",
     "experimental",
     "embassy-time-driver",
     "critical-section",
@@ -50,20 +52,38 @@ esp-idf-svc = { version = "0.52", features = [
 esp-idf-hal = { version = "0.46" }
 esp-idf-sys = { version = "0.37", features = ["binstart"] }
 
-# Matter protocol — pure Rust implementation
-# Verify latest at https://github.com/project-chip/rs-matter
-rs-matter = { git = "https://github.com/project-chip/rs-matter", branch = "main", default-features = false, features = [
+# Matter over Thread + BLE commissioning on ESP-IDF.
+# esp-idf-matter wraps rs-matter with the Espressif Thread/BLE transports,
+# NVS persistence, and the EspThreadMatterStack assembly. It tracks the
+# `sysgrok` forks of rs-matter / rs-matter-stack — see [patch.crates-io] below,
+# which MUST live in this (root) crate for the redirect to take effect.
+# Vendored under vendor/esp-idf-matter with a local patch relaxing the module
+# gate so the high-level Thread stack is available on the pure-Thread ESP32-H2
+# (upstream a8a1b98 hard-excluded esp32h2). See SETUP.md.
+esp-idf-matter = { path = "vendor/esp-idf-matter", default-features = false, features = [
     "std",
+    "async-io-mini",
+    "log",
+    "rustcrypto",
+    # Keep rs-matter's static allocations modest (H2 has ~320 KB SRAM). Matches
+    # the esp-idf-matter example's sizing. A HomeKit device needs few fabrics.
+    "max-fabrics-2",
 ] }
 
-# Async executor (embassy, integrated with ESP-IDF FreeRTOS tick)
-embassy-executor = { version = "0.10", features = [
-    "executor-thread",
-    "platform-std",
-] }
+# Async building blocks (embassy time/sync drive the controller loop; Matter and
+# the controller each run under `esp_idf_svc::hal::task::block_on` in their own
+# thread, so no standalone executor crate is needed).
 embassy-time     = { version = "0.5" }
 embassy-sync     = { version = "0.8" }
 embassy-futures  = { version = "0.1" }
+# Provides embassy-time's timer queue (the `__embassy_time_queue_item_from_waker`
+# symbol). Required because we drive futures with esp-idf `block_on` rather than
+# embassy-executor (which would otherwise supply an integrated timer queue).
+embassy-time-queue-utils = { version = "0.3", features = ["generic-queue-64"] }
+
+# Static allocation for the (large) Matter stack + CSPRNG for crypto/dataver.
+static_cell = "2.1"
+rand        = "0.8"
 
 # Utilities
 log       = "0.4"
@@ -76,6 +96,13 @@ mockall = "0.13"
 
 [build-dependencies]
 embuild = "0.33"
+
+# esp-idf-matter is built against coordinated forks of rs-matter and
+# rs-matter-stack (the `next` branches). Cargo only honours [patch] from the
+# root crate, so these must be declared here rather than in esp-idf-matter.
+[patch.crates-io]
+rs-matter       = { git = "https://github.com/sysgrok/rs-matter",       branch = "next" }
+rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
 
 [profile.release]
 opt-level     = "s"   # optimise for size
