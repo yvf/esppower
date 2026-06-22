@@ -1,0 +1,4 @@
+# Espressif's Rust fork is required for RISC-V ESP targets.
+# Install with: cargo install espup && espup install
+[toolchain]
+channel = "esp"

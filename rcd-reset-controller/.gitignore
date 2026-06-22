@@ -1,0 +1,27 @@
+# Rust build output
+/target
+
+# embuild-managed ESP-IDF toolchain + Python env (huge, machine-specific)
+/.embuild
+
+# Cargo-installed binstubs / local artifacts
+/.embuild/
+
+# Build/test log captures
+/build.out
+/test.out
+
+# Editor backups / autosaves / locks
+*~
+\#*\#
+.\#*
+*.rs.bk
+
+# Local Claude Code settings
+/.claude/settings.local.json
+
+# OS junk
+.DS_Store
+
+# Local reference material (downloaded esp-idf-matter examples)
+/.matter-ref

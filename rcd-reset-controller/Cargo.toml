@@ -1,0 +1,88 @@
+[package]
+name = "rcd-reset-controller"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yan Fitterer"]
+description = "RCD Reset Controller — ESP32-H2, Matter over Thread, Apple HomeKit"
+
+[[bin]]
+name = "rcd-reset-controller"
+harness = false  # embassy_executor::main provides its own entry point
+
+[lib]
+name = "rcd_reset_controller"
+path = "src/lib.rs"
+
+[[example]]
+name = "hw_actuator"
+path = "tests/integration/hw_actuator.rs"
+
+[[example]]
+name = "hw_sensor"
+path = "tests/integration/hw_sensor.rs"
+required-features = ["sensor-ct"]
+
+[[example]]
+name = "hw_emf"
+path = "tests/integration/hw_emf.rs"
+required-features = ["sensor-emf"]
+
+[[example]]
+name = "hw_full_cycle"
+path = "tests/integration/hw_full_cycle.rs"
+required-features = ["sensor-ct"]
+
+[features]
+# Exactly one power-sensing backend must be active per build.
+# EMF (contactless electromagnetic-field detector on GPIO4) is the default.
+# CT (SCT-013 current transformer on the ADC) is kept available behind a flag.
+default     = ["sensor-emf"]
+sensor-emf  = []
+sensor-ct   = []
+
+[dependencies]
+# ESP-IDF HAL and services — verify latest compatible versions at https://github.com/esp-rs
+esp-idf-svc = { version = "0.52", features = [
+    "experimental",
+    "embassy-time-driver",
+    "critical-section",
+] }
+esp-idf-hal = { version = "0.46" }
+esp-idf-sys = { version = "0.37", features = ["binstart"] }
+
+# Matter protocol — pure Rust implementation
+# Verify latest at https://github.com/project-chip/rs-matter
+rs-matter = { git = "https://github.com/project-chip/rs-matter", branch = "main", default-features = false, features = [
+    "std",
+] }
+
+# Async executor (embassy, integrated with ESP-IDF FreeRTOS tick)
+embassy-executor = { version = "0.10", features = [
+    "executor-thread",
+    "platform-std",
+] }
+embassy-time     = { version = "0.5" }
+embassy-sync     = { version = "0.8" }
+embassy-futures  = { version = "0.1" }
+
+# Utilities
+log       = "0.4"
+anyhow    = { version = "1", features = ["std"] }
+heapless  = "0.8"
+
+[dev-dependencies]
+# Host-side test helpers (unit tests only, not flashed)
+mockall = "0.13"
+
+[build-dependencies]
+embuild = "0.33"
+
+[profile.release]
+opt-level     = "s"   # optimise for size
+lto           = true
+codegen-units = 1
+panic         = "abort"
+
+[profile.dev]
+opt-level = 1          # light optimisation to keep RAM usage manageable
+panic     = "abort"

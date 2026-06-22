@@ -1,0 +1,39 @@
+# ─── Thread / OpenThread ─────────────────────────────────────────────────────
+CONFIG_OPENTHREAD_ENABLED=y
+CONFIG_OPENTHREAD_FTD=y
+CONFIG_OPENTHREAD_COMMISSIONER=n
+CONFIG_OPENTHREAD_JOINER=n
+
+# ─── IEEE 802.15.4 radio (ESP32-H2 native) ───────────────────────────────────
+CONFIG_IEEE802154_ENABLED=y
+
+# ─── Matter ──────────────────────────────────────────────────────────────────
+# rs-matter handles the Matter protocol layer; ESP-IDF provides OpenThread transport.
+# If using esp-matter C++ component uncomment these:
+# CONFIG_ESP_MATTER_ENABLE_DATA_MODEL=y
+
+# ─── NVS (Non-Volatile Storage) — persists Matter fabric + commissioner data ──
+CONFIG_NVS_FLASH_PARTITION_SIZE=0x6000
+
+# ─── ADC ─────────────────────────────────────────────────────────────────────
+CONFIG_ADC_SUPPRESS_DEPRECATE_WARN=y
+CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM=y
+
+# ─── LEDC (LED PWM controller — used for RC servo signal) ───────────────────
+# The clock source is chosen at runtime via LEDC_AUTO_CLK (esp-idf-hal). On the
+# ESP32-H2 there is no LEDC APB clock anyway — only XTAL / PLL_F96M / RC_FAST —
+# so there is nothing to set here. (CONFIG_LEDC_USE_APB_CLK is not a real symbol
+# and was silently dropped.)
+
+# ─── FreeRTOS / System ───────────────────────────────────────────────────────
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_TASK_FUNCTION_WRAPPER=n
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=30
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+
+# ─── Stack sizes ─────────────────────────────────────────────────────────────
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192

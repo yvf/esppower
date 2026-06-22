@@ -1,6 +1,8 @@
 # Non-Contact 220V AC EMF Presence Detector
 
-This document outlines the design, wiring, and embedded Rust code required to build a contactless 50/60Hz electromagnetic field (EMF) detector using an **ESP32-H2** and **BC547** transistors.
+This document outlines the design, wiring, and embedded Rust integration required to build a contactless 50/60Hz electromagnetic field (EMF) detector using an **ESP32-H2** and **BC547** transistors.
+
+> **Design note (revised):** the cascade output is read as an **analog ADC input**, not a digital pin. The original digital design did not work; see [Why the output is read as analog](#-why-the-output-is-read-as-analog-not-digital) for the bench investigation that led here.
 
 ---
 
@@ -27,7 +29,7 @@ Looking directly at the **flat side** of the transistor with the pins pointing d
 
 ## 🔌 Circuit Wiring Diagram
 
-The circuit uses three BC547 transistors stacked into a high-gain Darlington cascade to amplify weak alternating electric fields.
+The circuit uses three BC547 transistors stacked into a high-gain Darlington-style cascade to amplify weak alternating electric fields.
 
 ```text
                ESP32-H2 3.3V
@@ -42,13 +44,13 @@ The circuit uses three BC547 transistors stacked into a high-gain Darlington cas
     │          └─┬─┘└─┬─┘└─┬─┘
    GND ──────────┘    │    │
                       ├────┤    ┌───────┐
-                      │    └────┤ 10kΩ  ├────> ESP32 GPIO 4
+                      │    └────┤ 10kΩ  ├────> ESP32 GPIO4 (ADC1_CH3)
                       ▼         └───────┘
                     Base Q3
 ```
 
 ### Step-by-Step Connections:
-1. **The Darlington Cascade:**
+1. **The Cascade:**
    * Connect **Emitter (E) of Q1** to **Base (B) of Q2**.
    * Connect **Emitter (E) of Q2** to **Base (B) of Q3**.
 2. **Power & Ground Rails:**
@@ -58,96 +60,92 @@ The circuit uses three BC547 transistors stacked into a high-gain Darlington cas
    * Connect your spiral copper wire antenna directly to the **Base (B) of Q1**.
    * Place your high-value bleeder resistor (**1MΩ to 10MΩ**) between the **Base (B) of Q1 and GND**. *Note: This prevents static charge buildup from keeping the sensor permanently locked on.*
 4. **The Output to ESP32-H2:**
-   * Connect a wire to the junction where the **Emitter of Q2 meets the Base of Q3**.
-   * Run this wire through a **10kΩ resistor** straight into **GPIO 4** on your ESP32-H2.
+   * Connect a wire to the junction where the **Emitter of Q2 meets the Base of Q3** (the output node).
+   * Run this wire through a **10kΩ** series resistor into **GPIO4** on your ESP32-H2.
+   * GPIO4 is configured as **ADC1 channel 3** (analog input) — *not* a digital input.
 
 ---
 
-## 🦀 Embedded Rust Solution (`no_std`)
+## 🔬 Why the output is read as analog (not digital)
 
-This program utilizes `esp-hal` to track state transitions over a brief 40ms sampling window (safely capturing 2 complete cycles of a 50Hz/60Hz wave).
+The first version of this firmware configured GPIO4 as a **digital input** and counted logic-level transitions. On the bench it detected **zero** transitions even with the antenna held on a live cable. A scope investigation (Rigol DS1104Z) explained why, and the firmware was changed to read the node with the **ADC** instead.
 
-### 📄 `Cargo.toml`
-Ensure your configuration points to the appropriate version targeting the ESP32-H2.
+### Node names used below
 
-```toml
-[package]
-name = "esp32h2-emf-detector"
-version = "0.1.0"
-edition = "2021"
+| Node | Physical point |
+|------|----------------|
+| `N_ant` | Base of Q1 — antenna + bleeder |
+| `N_A` | Q1 emitter = Q2 base |
+| `N_out` | Q2 emitter = Q3 base = the 10 kΩ tap → GPIO4 |
 
-[dependencies]
-esp-backtrace = { version = "0.12.0", features = ["esp32h2", "panic-handler", "print-uart"] }
-esp-hal = { version = "0.18.0", features = ["esp32h2"] }
-esp-println = { version = "0.9.0", features = ["esp32h2", "log"] }
-log = "0.4.20"
-```
+### Findings
 
-### 📄 `src/main.rs`
+* **The output node is clamped to ≈ 0.8 V.** `N_out` is also Q3's *base*, and Q3's emitter is at GND, so the base-emitter junction clamps the node to roughly one diode drop (~0.7–0.8 V). It physically cannot reach the ESP32-H2 input-HIGH threshold (V_IH ≈ 0.75 × 3.3 V ≈ **2.5 V**). A digital read therefore returns a constant LOW → no transitions, regardless of how good the antenna coupling is.
+* **There is, however, a healthy AC signal there.** Measured peak-to-peak 50 Hz swing at `N_out` (AC-coupled, 20 MHz BW limit, AC-Line trigger):
+
+  | Condition | `N_ant` (Vpp) | `N_out` (Vpp) |
+  |-----------|---------------|---------------|
+  | Field present (antenna on live cable) | ~350 mV | **~750 mV** |
+  | Field absent (away from mains)        | —             | **~300 mV** (ambient noise floor) |
+
+  Both swings sit entirely **below** the 0.8 V clamp.
+
+### Conclusion
+
+The analog front end works fine; only the *interface* was wrong. Reading `N_out` with the ADC and detecting the **peak-to-peak swing** captures the 750 mV-vs-300 mV difference cleanly and sidesteps the logic-threshold problem entirely. No hardware change is required.
+
+> The cascade is a chain of emitter-followers (current gain, ~unity voltage gain) and Q3 effectively acts as a clamp on the output node. If you ever want a true logic-level digital output, the last stage would need to be reworked into a **common-emitter** stage (collector resistor to 3.3 V, output taken at the collector) with base biasing — but for this project the ADC approach is simpler and robust.
+
+---
+
+## 🦀 Firmware integration (this project)
+
+GPIO4 is read as **ADC1 channel 3** using `esp-idf-hal`'s one-shot ADC, sampled fast enough to capture the 50 Hz waveform, then reduced to a peak-to-peak swing and thresholded. The detection logic is identical in shape to the CT backend.
+
+* Implementation: [`src/sensor/emf.rs`](rcd-reset-controller/src/sensor/emf.rs)
+* Tunable constants: [`src/config.rs`](rcd-reset-controller/src/config.rs)
+* On-device check: `cargo run --example hw_emf --release`
+
+### Sampling & detection parameters (`config.rs`)
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `EMF_SAMPLE_COUNT` | `400` | ADC samples per detection window |
+| `EMF_SAMPLE_INTERVAL_US` | `100` | spacing → 400 × 100 µs = **40 ms ≈ 2 full 50 Hz cycles** |
+| `EMF_DETECTION_THRESHOLD` | `550` | peak-to-peak ADC counts above which AC is "present" |
+
+**Threshold derivation.** 12-bit ADC at 12 dB attenuation ≈ 0–3.9 V full scale → ≈ 1.05 counts/mV.
+
+* field present : ~750 mV pp ≈ **790 counts**
+* field absent   : ~300 mV pp ≈ **315 counts**
+* threshold sits at the midpoint, ~525 mV ≈ **550 counts** (≈ 235 counts of margin above the noise floor).
+
+### Core logic (abridged)
+
 ```rust
-#![no_std]
-#![no_main]
+// GPIO4 = ADC1 channel 3, 12 dB attenuation.
+let adc = AdcDriver::new(peripherals.adc1)?;
+let cfg = AdcChannelConfig { attenuation: attenuation::DB_12, ..Default::default() };
+let mut channel = AdcChannelDriver::new(adc, peripherals.pins.gpio4, &cfg)?;
 
-use esp_backtrace as _;
-use esp_hal::{
-    clock::ClockControl,
-    delay::Delay,
-    gpio::{Input, Pull, Io},
-    peripherals::Peripherals,
-    prelude::*,
-    system::SystemControl,
-};
-use esp_println::println;
-
-#[entry]
-fn main() -> ! {
-    // 1. Initialize core system peripherals and clocks
-    let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
-    let delay = Delay::new(&clocks);
-
-    // 2. Set up IO Mux and configure GPIO 4 as a Digital Input
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut emf_pin = Input::new(io.pins.gpio4, Pull::None);
-
-    println!("Contactless 220V AC EMF Detector Initialized!");
-
-    let mut edge_transitions;
-    let mut last_state;
-
-    loop {
-        // Sample the pin state continuously inside a brief 40ms tracking window
-        // 40ms handles roughly 2 complete cycles of a 50Hz or 60Hz wave
-        last_state = emf_pin.is_high();
-        edge_transitions = 0;
-
-        for _ in 0..400 {
-            let current_state = emf_pin.is_high();
-            if current_state != last_state {
-                edge_transitions += 1;
-                last_state = current_state;
-            }
-            // Tiny 100-microsecond delay between samples inside the window
-            delay.delay_us(100);
-        }
-
-        // Evaluate if alternating frequency was present within the window
-        if edge_transitions >= 2 {
-            println!("⚡ 220V AC Presence Detected! (Transitions: {})", edge_transitions);
-        } else {
-            println!("❌ AC Power ABSENT / Off");
-        }
-
-        // Wait a quarter second before running the next 40ms window scan
-        delay.delay_ms(250);
-    }
+// Sample one 40 ms window (≈ two 50 Hz cycles).
+let mut buf = [0u16; EMF_SAMPLE_COUNT];
+for slot in buf.iter_mut() {
+    *slot = channel.read_raw()?;
+    // 100 µs between samples (Timer in async, sleep in the blocking test path)
 }
+
+// Peak-to-peak swing → presence.
+let pp = buf.iter().max().unwrap() - buf.iter().min().unwrap();
+let present = pp > EMF_DETECTION_THRESHOLD; // 550 counts
 ```
 
 ---
 
 ## 🛠️ Calibration and Tuning
 
-* **Too Sensitive (Stuck on "Detected"):** If the circuit displays AC presence when the antenna is far away from the wire, shorten the antenna length or lower the bleeder resistor value (e.g., from 10MΩ down to 1MΩ) to discharge static faster.
-* **Not Sensitive Enough:** Increase the length of your spiral copper antenna, or physically coil the antenna wire around the outside jacket of the 220V electrical cable.
+Tune `EMF_DETECTION_THRESHOLD` (ADC counts) in `config.rs`:
+
+* **False positives (reads "present" with no field):** ambient mains hum is exceeding the threshold. Raise `EMF_DETECTION_THRESHOLD`, shorten the antenna, or lower the bleeder resistor (e.g. 10 MΩ → 1 MΩ) to discharge static faster.
+* **Misses a real field:** lower `EMF_DETECTION_THRESHOLD`, lengthen the spiral antenna, or coil it around the outside jacket of the 220 V cable.
+* **Re-calibrating from scratch:** scope `N_out` (AC-coupled) with the field present and absent, note the two peak-to-peak voltages, convert to ADC counts (≈ 1.05 counts/mV at 12 dB), and set the threshold to the midpoint. The `hw_emf` example also logs the measured peak-to-peak each sample, so you can read the live counts over the serial monitor and pick a threshold without the scope.
