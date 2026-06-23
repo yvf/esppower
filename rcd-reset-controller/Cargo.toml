@@ -72,8 +72,8 @@ esp-idf-matter = { path = "vendor/esp-idf-matter", default-features = false, fea
     # commissioning runs short of buffers/sessions.
     "max-fabrics-2",
     "max-subscriptions-1",
-    "max-im-buffers-5",
-    "max-sessions-8",
+    "max-im-buffers-4",
+    "max-sessions-4",
 ] }
 
 # Async building blocks (embassy time/sync drive the controller loop; Matter and

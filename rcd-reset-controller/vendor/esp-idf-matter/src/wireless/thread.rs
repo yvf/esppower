@@ -167,11 +167,16 @@ impl ThreadCoex for EspMatterThread<'_, '_> {
 
         let net_ctl = EspMatterThreadCtl::new(&thread, self.sysloop.clone());
         let mut mdns = EspMatterThreadSrp::new(&thread);
-        // RCD DIAGNOSTIC: free heap right before Bluedroid init (the prime
-        // suspect for "Bluedroid Initialize Fail" on the RAM-constrained H2).
+        // RCD DIAGNOSTIC: heap right before Bluedroid init (the prime suspect for
+        // "Bluedroid Initialize Fail" on the RAM-constrained H2). Bluedroid does
+        // one big env malloc at init, so the LARGEST CONTIGUOUS block matters as
+        // much as the total — a fragmented heap fails even with free bytes left.
         info!(
-            "RCD: free heap before BtDriver/Bluedroid init = {} bytes",
-            unsafe { esp_idf_svc::sys::esp_get_free_heap_size() }
+            "RCD: heap before Bluedroid init: total free = {} bytes, largest block = {} bytes",
+            unsafe { esp_idf_svc::sys::heap_caps_get_free_size(esp_idf_svc::sys::MALLOC_CAP_DEFAULT) },
+            unsafe {
+                esp_idf_svc::sys::heap_caps_get_largest_free_block(esp_idf_svc::sys::MALLOC_CAP_DEFAULT)
+            },
         );
         let bt = BtDriver::new(bt_p, Some(self.nvs.clone())).unwrap();
 
