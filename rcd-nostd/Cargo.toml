@@ -1,0 +1,40 @@
+[package]
+name = "rcd-nostd"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.84"
+authors = ["Yan Fitterer"]
+description = "RCD Reset Controller — ESP32-H2, no-std (esp-hal) Matter over Thread"
+
+[[bin]]
+name = "rcd-nostd"
+path = "src/main.rs"
+harness = false
+
+# ─── Core no-std esp-hal stack (version matrix from esp-rs/openthread esp example) ──
+[dependencies]
+esp-hal       = { version = "1.1", features = ["esp32h2", "log-04", "unstable", "exception-handler"] }
+esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"] }
+esp-radio     = { version = "0.18", features = ["esp32h2", "unstable", "ieee802154"] }
+esp-alloc     = { version = "0.10" }
+esp-backtrace = { version = "0.19", features = ["esp32h2", "panic-handler", "println"] }
+esp-println   = { version = "0.17", features = ["esp32h2", "log-04"] }
+esp-bootloader-esp-idf = { version = "0.5", features = ["esp32h2", "log-04"] }
+
+embassy-executor = { version = "0.10" }
+embassy-time     = { version = "0.5" }
+embassy-sync     = { version = "0.8" }
+embassy-futures  = { version = "0.1" }
+
+log            = "0.4"
+critical-section = "1.2"
+static_cell    = "2.1"
+
+[profile.dev]
+opt-level = "z"   # esp-hal: debug is too slow; always optimize a little
+
+[profile.release]
+opt-level     = "z"
+lto           = "fat"
+codegen-units = 1
+debug         = 2

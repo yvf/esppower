@@ -1,0 +1,5 @@
+# Bare-metal RISC-V (ESP32-H2) uses upstream nightly — NOT the Xtensa `esp` fork.
+[toolchain]
+channel = "nightly"
+components = ["rust-src"]
+targets = ["riscv32imac-unknown-none-elf"]
