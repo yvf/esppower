@@ -3,6 +3,10 @@
 //! See docs/phase4b-glue-design.md. Built incrementally; not yet wired into main.
 #![allow(dead_code)]
 
+mod mdns;
 mod net;
+mod netif;
 
+pub use mdns::OtMdns;
 pub use net::OtNetStack;
+pub use netif::OtNetif;
