@@ -139,9 +139,12 @@ impl OnOffHooks for PlugHooks {
 /// endpoints start at 1.
 const LIGHT_ENDPOINT_ID: u16 = 1;
 
-/// Bump-allocator size for the Matter stack. 17000 is the value the reference
-/// `light_thread.rs` uses for esp32c6/h2.
-const BUMP_SIZE: usize = 17000;
+/// Bump-allocator size for the Matter stack (rs-matter future arena, lives in
+/// static BSS). The reference uses 17000; on-device logging showed only ~6.3 KB
+/// used through BLE bring-up, so 14000 still leaves headroom for the
+/// commissioning futures while freeing ~3 KB of RAM toward the heap. If
+/// commissioning ever panics with a bump-exhausted message, raise this.
+const BUMP_SIZE: usize = 14000;
 
 /// The Matter stack is large and MUST be allocated statically (mandatory for the
 /// Thread+BLE coex stack, and avoids blowing the thread stack).

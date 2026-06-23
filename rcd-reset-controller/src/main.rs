@@ -38,8 +38,10 @@ static CTRL_CHANNEL: Channel<CriticalSectionRawMutex, ToController, 4> = Channel
 static MATTER_CHANNEL: Channel<CriticalSectionRawMutex, ToMatter, 4> = Channel::new();
 
 /// Stack for the Matter thread. rs-matter futures are large; the reference uses
-/// 20 KB (can drop to ~15 KB on esp32c6).
-const MATTER_THREAD_STACK: usize = 20 * 1024;
+/// 20 KB (~15 KB min on esp32c6). The std thread stack is heap-allocated, so
+/// trimming it to 16 KB frees ~4 KB of heap for Bluedroid init, which on the
+/// RAM-tight H2 is otherwise exhausted by the end of BLE bring-up.
+const MATTER_THREAD_STACK: usize = 16 * 1024;
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
