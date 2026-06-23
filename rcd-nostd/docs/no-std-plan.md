@@ -66,8 +66,19 @@ crypto feature subset differs from its prebuilt config. That needs, on PATH:
    against our deps). openthread/rs-matter pull **embassy-sync 0.8** transitively; the
    two coexist as long as we never pass one version's mutex where the other is
    expected. esp-radio features need **both** `ieee802154` and `ble`.
-4. **Matter glue** — implement rs-matter-stack `ThreadCoex` + `Gatt` over (2)+(3);
-   run the rs-matter-stack run loop; print the commissioning QR.
+4. **Matter** — (a) **[DONE — deps build]** add rs-matter-stack (`alloc`,`rustcrypto`)
+   + rs-matter via `[patch.crates-io]` (sysgrok `next`). The full graph
+   (esp-hal+esp-radio+openthread+trouble+rs-matter) compiles for H2.
+
+   **Crypto-version conflict (resolved):** esp-radio's 802.15.4 `ccm 0.4.4` pins
+   `subtle = "=2.4"` exactly, vs rs-matter's `subtle ^2.6`. Fix: **vendored `ccm`
+   under `vendor/ccm`** with the pin relaxed to `^2.4` (`[patch.crates-io] ccm`),
+   plus a direct `subtle = "2.6"` dep to force unification to 2.6.1 (API-compatible
+   for ccm's constant-time tag compare). Both `ccm 0.4.4` (esp-radio) and `ccm 0.5`
+   (rs-matter) then coexist on one `subtle`.
+
+   (b) **[NEXT]** implement rs-matter-stack `ThreadCoex` + `GattPeripheral` over
+   (2)+(3); run the rs-matter-stack loop; print the commissioning QR.
 5. **Device model** — port the On/Off plug (`PlugHooks`) + controller state machine
    from the esp-idf version (logic is reusable; it's no_std-friendly already).
 6. **Peripherals** — re-implement the EMF ADC sensor (esp-hal `adc`) and the
