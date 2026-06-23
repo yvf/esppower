@@ -167,6 +167,12 @@ impl ThreadCoex for EspMatterThread<'_, '_> {
 
         let net_ctl = EspMatterThreadCtl::new(&thread, self.sysloop.clone());
         let mut mdns = EspMatterThreadSrp::new(&thread);
+        // RCD DIAGNOSTIC: free heap right before Bluedroid init (the prime
+        // suspect for "Bluedroid Initialize Fail" on the RAM-constrained H2).
+        info!(
+            "RCD: free heap before BtDriver/Bluedroid init = {} bytes",
+            unsafe { esp_idf_svc::sys::esp_get_free_heap_size() }
+        );
         let bt = BtDriver::new(bt_p, Some(self.nvs.clone())).unwrap();
 
         let mut peripheral =

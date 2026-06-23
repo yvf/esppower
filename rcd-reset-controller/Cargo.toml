@@ -65,9 +65,15 @@ esp-idf-matter = { path = "vendor/esp-idf-matter", default-features = false, fea
     "async-io-mini",
     "log",
     "rustcrypto",
-    # Keep rs-matter's static allocations modest (H2 has ~320 KB SRAM). Matches
-    # the esp-idf-matter example's sizing. A HomeKit device needs few fabrics.
+    # Shrink rs-matter's static allocations so more SRAM is left as heap for
+    # Bluedroid to initialize (H2 has only ~320 KB SRAM; Bluedroid mallocs a
+    # large env at init, and "Bluedroid Initialize Fail" is the failure we hit).
+    # These are still ample for a single-purpose HomeKit device. Tune up if
+    # commissioning runs short of buffers/sessions.
     "max-fabrics-2",
+    "max-subscriptions-1",
+    "max-im-buffers-5",
+    "max-sessions-8",
 ] }
 
 # Async building blocks (embassy time/sync drive the controller loop; Matter and

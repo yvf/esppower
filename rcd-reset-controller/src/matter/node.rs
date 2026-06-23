@@ -226,6 +226,14 @@ pub async fn run(
     stack.startup(&crypto, &mut kv).await?;
     let kv = stack.create_shared_kv(kv)?;
 
+    // Diagnostic: Bluedroid mallocs a large environment at init; on the
+    // RAM-constrained H2 this is the most likely thing to fail. Log the free
+    // heap going into Thread+BLE bring-up so we can see how tight it is.
+    info!(
+        "Matter: free heap before Thread+BLE init = {} bytes",
+        unsafe { esp_idf_svc::sys::esp_get_free_heap_size() }
+    );
+
     // Run the stack with concurrent Thread+BLE commissioning. `run_coex` prints
     // the commissioning QR code + manual pairing code to the console when no
     // fabric is provisioned. `()` = no network-dependent user task.
