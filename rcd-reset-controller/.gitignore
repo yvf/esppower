@@ -11,6 +11,7 @@
 /build.out
 /test.out
 /build_matter*.log
+/run.out
 
 # Editor backups / autosaves / locks
 *~
