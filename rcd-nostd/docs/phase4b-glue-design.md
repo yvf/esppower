@@ -55,15 +55,48 @@ e.g. `rs_matter_stack::matter::utils::sync::...` / `CriticalSectionRawMutex`.
    Template: esp-idf-matter `thread.rs` `EspMatterThreadCtl` (NetCtl ~94,
    ThreadDiag ~307).
 
-5. **GattPeripheral** (`rs_matter_stack::ble::GattPeripheral`) — hardest.
-   `run(&mut self, btp: &Btp, service_name, service_adv)`: advertise the Matter
-   BTP service (UUID **0xFFF6**) with `service_adv`, and on connect shuttle the
-   two BTP characteristics — **C1** (`18EE2EF5-263D-4559-959F-4F9C429F9D11`,
-   commissioner→device, Write) into `btp`, and `btp` output → **C2**
-   (`18EE2EF5-263D-4559-959F-4F9C429F9D12`, device→commissioner, Indicate). Reuse
-   the Phase-3 trouble plumbing (advertise/connect/GATT events); replace the
-   placeholder battery service with the BTP service + a CCCD on C2. Template:
-   esp-idf-matter `ble.rs` (`EspBtpGattPeripheral`) for the C1/C2↔Btp pump shape.
+5. **GattPeripheral** (`rs_matter_stack::ble::GattPeripheral`) — **the hardest;
+   not yet implemented.** It owns the whole BLE stack lifecycle (trouble Host +
+   runner + GATT server + advertise + the BTP pumps), so it's roughly Phase-3-in-
+   full plus the BTP shuttle. All the pieces are researched — concrete build sheet:
+
+   **BTP service** (`#[gatt_service]`, reuse the Phase-3 trouble pattern):
+   - Service UUID `0000FFF6-0000-1000-8000-00805F9B34FB` (16-bit 0xFFF6).
+   - **C1** `18EE2EF5-263D-4559-959F-4F9C429F9D11` — props `write`
+     (commissioner→device). C1_MAX_LEN = `MAX_BTP_SEGMENT_SIZE + GATT_HEADER_SIZE`.
+   - **C2** `…9D12` — props `indicate` (device→commissioner) + a CCCD.
+   - (C3 `…8F04`, `read`, additional-commissioning-data — optional; skip first.)
+   - Constants in `rs_matter::transport::network::btp::gatt` (UUIDs, lengths).
+
+   **`run(&mut self, btp, service_name, service_adv)`:** build the trouble Host
+   from the stored `BleConnector`/controller (as Phase-3 `ble_peripheral`);
+   advertise the BTP service with `service_adv` (an `AdvData` — encode its bytes
+   into the adv payload alongside the 0xFFF6 service UUID); `accept()` →
+   `with_attribute_server`; then `select3` of:
+   - **runner** (`runner.run()`),
+   - **incoming pump**: on `GattConnectionEvent::Gatt{event}` where
+     `WriteEvent::handle() == server.btp.c1.handle` → `btp.process_incoming(
+     Some(conn.raw().att_mtu()), peer_to_btaddr(conn.raw().peer_address()),
+     event.data())`; then `event.accept()`.
+   - **outgoing pump**: `loop { btp.wait_outgoing().await; let n =
+     btp.process_outgoing(Some(mtu), &mut buf)?; if n>0 { server.btp.c2
+     .indicate(&conn, &buf_value).await } }`.
+
+   **trouble API confirmed (0.6):** `Characteristic::indicate(&conn, &value)`
+   (attribute.rs:970, no-op if CCCD unsubscribed); `WriteEvent::handle()`/`data()`
+   (gatt.rs:408+); `Connection::att_mtu()` (connection.rs:486);
+   `Connection::peer_address() -> BdAddr` (501) → map to `rs_matter…btp::BtAddr`.
+
+   **Wrinkle to solve:** trouble characteristics are *typed/fixed-size* but C2
+   indications are *variable-length*. First cut: declare C2 as `[u8; C2_MAX_LEN]`
+   and indicate the fixed buffer; verify on hardware whether the peer needs the
+   exact length (if so, use trouble's variable-length value path). This is the
+   main thing to validate with a real commissioner.
+
+   Template: esp-idf-matter `ble.rs` `EspBtpGattPeripheral` — `run` spawns
+   advertise + `select(process_incoming, process_outgoing)`; the two pump loops
+   (the Btp-driving logic) port directly; only the GATT-server half changes to
+   trouble.
 
 ## Run loop (after adapters compile)
 
