@@ -5,8 +5,10 @@
 
 mod mdns;
 mod net;
+mod netctl;
 mod netif;
 
 pub use mdns::OtMdns;
 pub use net::OtNetStack;
+pub use netctl::OtNetCtl;
 pub use netif::OtNetif;
