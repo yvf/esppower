@@ -2836,6 +2836,7 @@ dependencies = [
  "heapless 0.9.3",
  "log",
  "openthread",
+ "rand_core 0.6.4",
  "rand_core 0.9.5",
  "rs-matter-stack",
  "static_cell",

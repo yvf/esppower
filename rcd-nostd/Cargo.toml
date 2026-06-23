@@ -38,6 +38,9 @@ heapless       = "0.8"
 # with our 0.8 `heapless`).
 heapless_09    = { package = "heapless", version = "0.9" }
 rand_core      = "0.9"
+# rs-matter's crypto wants a rand_core 0.6 `CryptoRngCore`; aliased so the matter
+# glue can shim one over esp-hal's (0.9) Rng. See src/matter/stack.rs.
+rand_core_06   = { package = "rand_core", version = "0.6", default-features = false }
 # Force subtle ≥2.6 so it unifies across rs-matter (needs 2.6) and esp-radio's
 # 802.15.4 ccm (vendored, pin relaxed). Direct dep makes it survive `cargo update`.
 subtle         = { version = "2.6", default-features = false }
