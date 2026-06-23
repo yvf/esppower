@@ -29,6 +29,16 @@ embassy-futures  = { version = "0.1" }
 log            = "0.4"
 critical-section = "1.2"
 static_cell    = "2.1"
+heapless       = "0.8"
+rand_core      = "0.9"
+
+# Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf — no C build).
+# H2 802.15.4 radio supported out of the box via the esp-radio feature.
+openthread = { git = "https://github.com/esp-rs/openthread", features = [
+    "esp-radio", "udp", "srp", "dns-client", "isupper", "log",
+] }
+# C-lib shims OpenThread needs (utoa/strtoul) in no_std.
+tinyrlibc  = { version = "0.5", default-features = false, features = ["utoa", "strtoul"] }
 
 [profile.dev]
 opt-level = "z"   # esp-hal: debug is too slow; always optimize a little

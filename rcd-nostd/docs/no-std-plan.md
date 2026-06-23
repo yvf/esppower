@@ -25,11 +25,29 @@ are Thread-only / BLE-only, and rs-matter-stack's examples are std/Linux. So the
 core new work is a ~few-hundred-line transport layer implementing those traits
 with `openthread` (Thread netif/UDP/SRP) and `trouble` (BLE GATT peripheral).
 
+## Build prerequisites (host)
+
+`openthread-sys` links a prebuilt OpenThread lib for `riscv32imac-unknown-none-elf`
+(no C build), but `mbedtls-rs-sys` does an **on-the-fly mbedtls C build** because our
+crypto feature subset differs from its prebuilt config. That needs, on PATH:
+- **cmake** (`/opt/homebrew/bin`)
+- a **RISC-V-capable clang** — Apple's `/usr/bin/clang` has NO riscv32 target; use
+  brew LLVM: `/opt/homebrew/opt/llvm/bin/clang` (+ `LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib`).
+
+So build with:
+```sh
+export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/bin:$PATH"
+export LIBCLANG_PATH="/opt/homebrew/opt/llvm/lib"
+cargo build
+```
+
 ## Phases
 
 1. **[DONE] Skeleton** — esp-hal+esp-rtos+esp-radio+embassy+heap boot. Builds in ~27 s.
-2. **Thread up** — port the openthread `srp` example: join Thread, UDP, SRP. Prove
-   the radio + OpenThread work on our board with a real border router.
+2. **[DONE — builds] Thread up** — openthread `srp`-style: radio (`EspRadio`/
+   `Ieee802154`), `OpenThread::new_with_udp_srp`, join via `THREAD_DATASET`, log
+   role/addrs/heap. Compiles+links (prebuilt OT lib + built mbedtls). Next: flash
+   and confirm it attaches to a real border router.
 3. **BLE up** — trouble-host GATT server on esp-radio BLE; advertise a service.
 4. **Matter glue** — implement rs-matter-stack `ThreadCoex` + `Gatt` over (2)+(3);
    run the rs-matter-stack run loop; print the commissioning QR.
