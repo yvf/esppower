@@ -3,6 +3,10 @@ CONFIG_OPENTHREAD_ENABLED=y
 CONFIG_OPENTHREAD_FTD=y
 CONFIG_OPENTHREAD_COMMISSIONER=n
 CONFIG_OPENTHREAD_JOINER=n
+# OpenThread allocates its message-buffer pool from the heap at init (before BLE
+# comes up), so it directly squeezes Bluedroid. The default (65) is generous for
+# a low-traffic device; 20 frees several KB. Raise if Thread drops packets.
+CONFIG_OPENTHREAD_NUM_MESSAGE_BUFFERS=20
 
 # ─── IEEE 802.15.4 radio (ESP32-H2 native) ───────────────────────────────────
 CONFIG_IEEE802154_ENABLED=y
@@ -66,5 +70,9 @@ CONFIG_LOG_TIMESTAMP_SOURCE_SYSTEM=y
 CONFIG_LOG_COLORS=y
 
 # ─── Stack sizes ─────────────────────────────────────────────────────────────
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+# The main task runs only the lightweight RCD controller loop (ADC sampling +
+# embassy timers), so 8 KB is ample — and the main task stack is heap-allocated,
+# so this frees ~8 KB toward Bluedroid's init. (The Matter stack runs on its own
+# 20 KB thread, untouched.)
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=8192
