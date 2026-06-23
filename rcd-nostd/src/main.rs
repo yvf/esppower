@@ -112,6 +112,9 @@ async fn main(spawner: Spawner) {
 
     loop {
         Timer::after(Duration::from_secs(5)).await;
+
+        // role=Child/Router/Leader + ext_pan_id=Some(..) means we joined the mesh.
+        let status = ot.net_status();
         let mut n = 0;
         ot.ipv6_addrs(|addr| {
             if let Some((ip, _prefix)) = addr {
@@ -124,9 +127,8 @@ async fn main(spawner: Spawner) {
         })
         .unwrap();
         info!(
-            "Thread: {} addr(s), free heap = {} bytes",
-            n,
-            esp_alloc::HEAP.free()
+            "Thread: role={:?} ext_pan_id={:?} ip6={} | {} addr(s), free heap = {} B",
+            status.role, status.ext_pan_id, status.ip6_enabled, n, esp_alloc::HEAP.free()
         );
     }
 }
