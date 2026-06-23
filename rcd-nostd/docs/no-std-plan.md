@@ -13,7 +13,7 @@ bare-metal removes the FreeRTOS/Bluedroid overhead so most of the SRAM is heap.
 | Heap | **esp-alloc 0.10** | the win: allocate most of 320 KB as heap |
 | Radio | **esp-radio 0.18** (`ieee802154` + BLE) | one crate, both radios + coex |
 | Thread | **openthread** (esp-rs/openthread): `esp-radio`,`udp`,`srp`,`dns-client`,`edge-nal` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; provides edge-nal UDP + SRP (Matter's mDNS-over-Thread) |
-| BLE host | **trouble-host** on esp-radio's BLE controller (`bt-hci`) | GATT server for commissioning |
+| BLE host | **trouble-host 0.6** on esp-radio's BLE controller | GATT server; version-pinned, see below |
 | Matter | **rs-matter** (`no_std`) + **rs-matter-stack** | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport |
 | Boot | esp-bootloader-esp-idf 0.5, esp-backtrace/println | |
 
@@ -48,7 +48,18 @@ cargo build
    `Ieee802154`), `OpenThread::new_with_udp_srp`, join via `THREAD_DATASET`, log
    role/addrs/heap. Compiles+links (prebuilt OT lib + built mbedtls). Next: flash
    and confirm it attaches to a real border router.
-3. **BLE up** — trouble-host GATT server on esp-radio BLE; advertise a service.
+3. **[DONE — builds] BLE up + Thread coex** — trouble-host BLE peripheral
+   (advertise + placeholder GATT) running concurrently with the Thread node on the
+   shared radio. Compiles. Next: flash + confirm it advertises while Thread runs.
+
+   **Critical version matrix (don't drift):** openthread pins **esp-radio 0.18 →
+   bt-hci 0.8.1**, so BLE must use **trouble-host 0.6** (also bt-hci 0.8.1) — trouble
+   `main`/0.7 needs bt-hci 0.9 and won't typecheck against `BleConnector`. trouble 0.6
+   uses **embassy-sync 0.7**, so this crate's *direct* `embassy-sync` dep is pinned to
+   **0.7** (trouble's `#[gatt_server]` macro resolves a bare `embassy_sync` path
+   against our deps). openthread/rs-matter pull **embassy-sync 0.8** transitively; the
+   two coexist as long as we never pass one version's mutex where the other is
+   expected. esp-radio features need **both** `ieee802154` and `ble`.
 4. **Matter glue** — implement rs-matter-stack `ThreadCoex` + `Gatt` over (2)+(3);
    run the rs-matter-stack run loop; print the commissioning QR.
 5. **Device model** — port the On/Off plug (`PlugHooks`) + controller state machine
