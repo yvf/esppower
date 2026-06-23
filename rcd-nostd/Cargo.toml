@@ -33,6 +33,10 @@ log            = "0.4"
 critical-section = "1.2"
 static_cell    = "2.1"
 heapless       = "0.8"
+# trouble-host 0.6 uses heapless 0.9; its `AsGatt for Vec<u8,N>` is on that type,
+# so the BTP C2 characteristic value must be a 0.9 Vec (aliased to avoid clashing
+# with our 0.8 `heapless`).
+heapless_09    = { package = "heapless", version = "0.9" }
 rand_core      = "0.9"
 # Force subtle ≥2.6 so it unifies across rs-matter (needs 2.6) and esp-radio's
 # 802.15.4 ccm (vendored, pin relaxed). Direct dep makes it survive `cargo update`.

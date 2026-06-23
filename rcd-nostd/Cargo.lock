@@ -2833,6 +2833,7 @@ dependencies = [
  "esp-radio",
  "esp-rtos",
  "heapless 0.8.0",
+ "heapless 0.9.3",
  "log",
  "openthread",
  "rand_core 0.9.5",
