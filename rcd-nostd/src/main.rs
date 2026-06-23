@@ -35,6 +35,8 @@ use tinyrlibc as _;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+mod matter; // Phase 4b transport glue (built incrementally; not yet wired in)
+
 macro_rules! mk_static {
     ($t:ty) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();

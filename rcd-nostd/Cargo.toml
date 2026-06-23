@@ -41,7 +41,7 @@ subtle         = { version = "2.6", default-features = false }
 # Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf — no C build).
 # H2 802.15.4 radio supported out of the box via the esp-radio feature.
 openthread = { git = "https://github.com/esp-rs/openthread", features = [
-    "esp-radio", "udp", "srp", "dns-client", "isupper", "log",
+    "esp-radio", "udp", "srp", "dns-client", "edge-nal", "isupper", "log",
 ] }
 # C-lib shims OpenThread needs (utoa/strtoul) in no_std.
 tinyrlibc  = { version = "0.5", default-features = false, features = ["utoa", "strtoul"] }

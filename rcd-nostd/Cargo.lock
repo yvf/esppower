@@ -2559,6 +2559,7 @@ version = "0.1.0"
 source = "git+https://github.com/esp-rs/openthread#8d08f18964e2484a44ed2cb1554d97e12a6c55e8"
 dependencies = [
  "bitflags 2.13.0",
+ "edge-nal",
  "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
