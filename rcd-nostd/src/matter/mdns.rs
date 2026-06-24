@@ -22,8 +22,9 @@ use core::net::{Ipv4Addr, Ipv6Addr};
 const MAX_MATTER_SERVICES: usize = 3;
 const OT_MDNS_BUF_SZ: usize = 256;
 
-fn to_err<E>(_err: E) -> Error {
+fn to_err<E: core::fmt::Debug>(err: E) -> Error {
     // rs-matter's error codes are coarse; SRP/Ot failures map to a network error.
+    log::warn!("[matter] OtMdns/SRP error: {err:?}");
     ErrorCode::NoNetworkInterface.into()
 }
 
@@ -51,7 +52,12 @@ impl<'a> OtMdns<'a> {
             write!(hostname, "{b:02X}").unwrap();
         }
 
-        self.ot.srp_autostart().map_err(to_err)?;
+        log::info!("[matter] OtMdns::run starting (SRP)");
+        // Non-fatal: SRP auto-start just enables the client; it connects once
+        // Thread is up + a server is found, so a failure here must not kill the run.
+        if let Err(e) = self.ot.srp_autostart() {
+            log::warn!("[matter] srp_autostart failed (will retry as Thread comes up): {e:?}");
+        }
 
         // (Re)register the SRP host if it isn't already our hostname.
         let register_host = self

@@ -43,7 +43,8 @@ struct BtpService {
     c2: HVec<u8, BTP_BUF>,
 }
 
-fn to_err<E>(_e: E) -> Error {
+fn to_err<E: core::fmt::Debug>(e: E) -> Error {
+    log::warn!("[matter] OtGattPeripheral error: {e:?}");
     ErrorCode::NoNetworkInterface.into()
 }
 
@@ -69,6 +70,7 @@ impl<C: Controller> GattPeripheral for OtGattPeripheral<C> {
         service_name: &str,
         service_adv: &AdvData,
     ) -> Result<(), Error> {
+        log::info!("[matter] OtGattPeripheral::run starting (service '{service_name}')");
         // BLE is used once, for the commissioning window; `run` loops internally.
         let controller = self
             .controller

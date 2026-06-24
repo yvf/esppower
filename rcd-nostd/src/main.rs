@@ -97,9 +97,11 @@ async fn main(spawner: Spawner) {
         .unwrap(),
     );
 
-    // Thread is NOT brought up here: under Matter the commissioner supplies the
-    // operational dataset over BLE, and `matter::OtNetCtl` applies it + enables
-    // Thread during commissioning.
+    // Bring the IPv6 interface up (link-local) so the Matter operational stack has
+    // a netif to initialize against during BLE commissioning. Thread itself is NOT
+    // attached here — the commissioner supplies the operational dataset over BLE and
+    // `matter::OtNetCtl` applies it (set_active_dataset_tlv + enable_thread) then.
+    ot.enable_ipv6(true).unwrap();
 
     // ── BLE ─────────────────────────────────────────────────────────────────────
     let connector = BleConnector::new(peripherals.BT, Default::default()).unwrap();
