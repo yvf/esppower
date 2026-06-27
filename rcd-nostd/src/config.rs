@@ -41,16 +41,29 @@ pub const ACTUATOR_EXTEND_DURATION_MS: u64 = 8_000;
 /// Time to hold the actuator fully retracted (same speed, reverse).
 pub const ACTUATOR_RETRACT_DURATION_MS: u64 = 8_000;
 
-/// Settling time after a reset attempt before re-reading the power sensor.
-pub const POST_ATTEMPT_WAIT_MS: u64 = 2_000;
+// ─── Reset-trigger timing ─────────────────────────────────────────────────────
 
-/// Maximum number of automatic retry attempts after the initial power-loss trigger.
-/// 1 retry = 2 total attempts (initial + 1 retry).
-pub const MAX_AUTO_RETRIES: u8 = 1;
+/// After power loss is first detected, require this much *continuous* absence
+/// before the first actuator activation. Debounces brief dropouts/sensor glitches;
+/// power returning within this window cancels the reset entirely.
+pub const POWER_LOSS_DEBOUNCE_MS: u64 = 60_000; // 60 s
+
+/// Delay before the first retry, measured from the initial actuator cycle, if power
+/// has not returned. Each subsequent retry multiplies this by `RETRY_BACKOFF_FACTOR`
+/// (exponential backoff), saturating at `MAX_RETRY_DELAY_MS`.
+pub const INITIAL_RETRY_DELAY_MS: u64 = 120_000; // 2 min
+
+/// Growth factor applied to the retry delay after each unsuccessful attempt.
+pub const RETRY_BACKOFF_FACTOR: u64 = 2;
+
+/// Upper bound on the exponential backoff between retries. Once reached, the
+/// controller keeps retrying at this interval until power returns.
+pub const MAX_RETRY_DELAY_MS: u64 = 24 * 60 * 60 * 1_000; // 24 h
 
 // ─── Power-sensor polling ────────────────────────────────────────────────────
 
-/// How often the controller re-samples the power sensor while idle (ms).
+/// How often the controller re-samples the power sensor (ms). Also the resolution
+/// at which power restoration is detected during the debounce and backoff waits.
 pub const POWER_POLL_INTERVAL_MS: u64 = 500;
 
 // ─── EMF power sensor ────────────────────────────────────────────────────────
