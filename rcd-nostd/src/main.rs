@@ -10,7 +10,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use log::{info, warn};
+use log::{error, info, warn};
 
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
@@ -30,7 +30,11 @@ use tinyrlibc as _;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+mod actuator; // L12 linear actuator over LEDC (GPIO10)
+mod config; // power-monitor / actuator timing constants
+mod controller; // EMF power monitor + auto-reset state machine
 mod matter; // Phase 4b transport glue (built incrementally; not yet wired in)
+mod sensor; // contactless EMF power-presence sensor over ADC1 (GPIO4)
 
 macro_rules! mk_static {
     ($t:ty) => {{
@@ -97,6 +101,20 @@ async fn main(spawner: Spawner) {
         .unwrap(),
     );
 
+    // ── Power monitor + auto-reset ──────────────────────────────────────────────
+    // Runs independently of Matter/Thread: the safety function must work whether or
+    // not the device is commissioned. Monitors the EMF sensor (GPIO4/ADC1) and drives
+    // the L12 actuator (GPIO10/LEDC) on power loss.
+    spawner.spawn(
+        run_controller(
+            peripherals.ADC1,
+            peripherals.GPIO4,
+            peripherals.LEDC,
+            peripherals.GPIO10,
+        )
+        .unwrap(),
+    );
+
     // Bring the IPv6 interface up (link-local) so the Matter operational stack has
     // a netif to initialize against during BLE commissioning. Thread itself is NOT
     // attached here — the commissioner supplies the operational dataset over BLE and
@@ -118,4 +136,25 @@ async fn main(spawner: Spawner) {
 #[embassy_executor::task]
 async fn run_ot(ot: OpenThread<'static>, radio: EspRadio<'static>) -> ! {
     ot.run(radio).await
+}
+
+// ─── Power-monitor task ────────────────────────────────────────────────────────
+
+#[embassy_executor::task]
+async fn run_controller(
+    adc1: esp_hal::peripherals::ADC1<'static>,
+    emf_pin: esp_hal::peripherals::GPIO4<'static>,
+    ledc: esp_hal::peripherals::LEDC<'static>,
+    actuator_pin: esp_hal::peripherals::GPIO10<'static>,
+) -> ! {
+    let sensor = sensor::EmfSensor::new(adc1, emf_pin);
+    let actuator = match actuator::Actuator::new(ledc, actuator_pin) {
+        Ok(a) => a,
+        Err(e) => {
+            error!("Controller: actuator init failed: {e:?} — power monitor disabled");
+            core::future::pending().await
+        }
+    };
+    let mut controller = controller::Controller::new(actuator, sensor);
+    controller.run().await
 }

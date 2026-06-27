@@ -44,8 +44,11 @@ struct BtpService {
 }
 
 fn to_err<E: core::fmt::Debug>(e: E) -> Error {
+    // BTP/BLE failures are a transport problem, not a missing-netif one. Mapping to
+    // BtpError keeps the surfaced error honest (it previously masqueraded as
+    // NoNetworkInterface, which sent debugging in the wrong direction).
     log::warn!("[matter] OtGattPeripheral error: {e:?}");
-    ErrorCode::NoNetworkInterface.into()
+    ErrorCode::BtpError.into()
 }
 
 /// `GattPeripheral` over a trouble BLE controller.
@@ -147,7 +150,9 @@ async fn advertise_btp<'a, 'b, C: Controller>(
             },
         )
         .await?;
+    log::info!("[matter] BLE advertising Matter BTP service (0xFFF6) — waiting for commissioner");
     let conn = advertiser.accept().await?.with_attribute_server(server)?;
+    log::info!("[matter] BLE commissioner connected — running BTP session");
     Ok(conn)
 }
 
@@ -156,8 +161,14 @@ async fn serve_conn<P: PacketPool>(
     btp: &Btp,
     conn: &GattConnection<'_, '_, P>,
 ) {
-    let mtu = conn.raw().att_mtu();
     let addr = BtAddr(conn.raw().peer_address().into_inner());
+
+    // NB: read `att_mtu()` *fresh* at each BTP op, never cache it. At connect time it
+    // is the 23-byte ATT default; the trouble runner only raises it (to min(247, peer))
+    // when the peer's ExchangeMTU completes. Since the runner processes ACL packets in
+    // wire order, that exchange lands before the first C1 write reaches us — but a value
+    // latched at connect would pin BTP to 23 and stall commissioning (Apple → "Accessory
+    // Not Found").
 
     let incoming = async {
         loop {
@@ -166,6 +177,7 @@ async fn serve_conn<P: PacketPool>(
                 GattConnectionEvent::Gatt { event } => {
                     if let GattEvent::Write(w) = &event {
                         if w.handle() == server.btp.c1.handle {
+                            let mtu = conn.raw().att_mtu();
                             let _ = btp.process_incoming(Some(mtu), addr, w.data());
                         }
                     }
@@ -180,6 +192,7 @@ async fn serve_conn<P: PacketPool>(
         let mut buf = [0u8; BTP_BUF];
         loop {
             btp.wait_outgoing().await;
+            let mtu = conn.raw().att_mtu();
             match btp.process_outgoing(Some(mtu), &mut buf) {
                 Ok(0) => continue,
                 Ok(len) => {

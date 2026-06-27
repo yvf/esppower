@@ -30,6 +30,8 @@ embassy-sync     = { version = "0.7" }
 embassy-futures  = { version = "0.1" }
 
 log            = "0.4"
+# `nb::block!` to drive esp-hal's non-blocking one-shot ADC reads in the EMF sensor.
+nb             = "1.1"
 critical-section = "1.2"
 static_cell    = "2.1"
 heapless       = "0.8"
@@ -60,7 +62,11 @@ trouble-host = { version = "0.6", features = ["default-packet-pool-mtu-255", "de
 
 # Matter: the generic rs-matter-stack (no_std, alloc + rustcrypto) on rs-matter.
 # The transport glue (GattPeripheral over trouble, Thread over openthread) is ours.
-rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next", default-features = false, features = ["rustcrypto", "alloc"] }
+# `log` is essential: it forwards to `rs-matter/log`, which is the ONLY way to get
+# rs-matter's internal logging — the commissioning QR code + `PairingCode:` line +
+# "Device is not commissioned yet" — to actually emit. Without it those macros are
+# compiled to no-ops and the device advertises silently with no pairing code shown.
+rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next", default-features = false, features = ["rustcrypto", "alloc", "log"] }
 
 # rs-matter-stack consumes rs-matter from crates.io; redirect both to the
 # coordinated `sysgrok` forks (next). Patches only take effect from the root crate.

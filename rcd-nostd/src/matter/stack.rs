@@ -98,7 +98,9 @@ pub async fn run_matter<C: Controller>(
     let device = on_off::OnOffHandler::new_standalone(
         Dataver::new_rand(&mut rand),
         LIGHT_ENDPOINT_ID,
-        TestOnOffDeviceLogic::new(true),
+        // `false` = no periodic self-toggle emulation (placeholder light; the real
+        // RCD plug lands in Phase 5). Avoids the 5s "out of band toggle" log spam.
+        TestOnOffDeviceLogic::new(false),
     );
 
     let handler = EmptyHandler
@@ -117,9 +119,12 @@ pub async fn run_matter<C: Controller>(
     stack.startup(&crypto, &mut store).await?;
     let kv = stack.matter().kv(store);
 
-    // BLE address: locally-administered random static, derived from the EUI-64.
+    // BLE address: static random, derived from the EUI-64. A static random address
+    // (Core spec Vol 6, Part B §1.3.2.1) MUST have its two most-significant bits = 0b11.
+    // BdAddr is little-endian on the HCI wire, so the MSB is byte 5 — set 0xC0 there,
+    // NOT byte 0 (the LSB), or the controller rejects advertising with HCI error 0x12.
     let mut addr = eui64[2..8].try_into().unwrap_or([0xff; 6]);
-    addr[0] |= 0xc0; // mark as random-static
+    addr[5] |= 0xc0; // two MSBs = 0b11 → static random
 
     stack
         .run_coex(

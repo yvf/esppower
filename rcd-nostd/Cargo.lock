@@ -891,14 +891,37 @@ dependencies = [
 
 [[package]]
 name = "domain"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7ff15f82df7d5086fb15dfc1c1e96598a6ded9829840a9bcfa1fa3ccd8d01d"
+dependencies = [
+ "domain-macros 0.11.1",
+ "heapless 0.8.0",
+ "octseq 0.5.2",
+ "time",
+]
+
+[[package]]
+name = "domain"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c469892dddfeff64ecfdbc64cf059c77fb0decaeccd4d5d484394bdd6312bac"
 dependencies = [
- "domain-macros",
+ "domain-macros 0.12.1",
  "heapless 0.9.3",
  "jiff",
- "octseq",
+ "octseq 0.6.1",
+]
+
+[[package]]
+name = "domain-macros"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d1a6796ad411f6812d691955066ad27450196bfb181bb91b66a643cc3e8f5b7"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -923,6 +946,22 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "signature",
+]
+
+[[package]]
+name = "edge-mdns"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73e6e268ceceab96a31eeefb7fc4afbb8f005313de23944a0ecb10a20f382193"
+dependencies = [
+ "domain 0.11.1",
+ "edge-nal",
+ "embassy-futures",
+ "embassy-sync 0.7.2",
+ "embassy-time",
+ "heapless 0.9.3",
+ "log",
+ "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -1079,6 +1118,7 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "futures-core",
+ "log",
 ]
 
 [[package]]
@@ -2534,6 +2574,15 @@ dependencies = [
 
 [[package]]
 name = "octseq"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "126c3ca37c9c44cec575247f43a3e4374d8927684f129d2beeb0d2cef262fe12"
+dependencies = [
+ "heapless 0.8.0",
+]
+
+[[package]]
+name = "octseq"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "182eab3e1cd9cdc0ecf1ce3342d9844f3dc7d098f0694569bfdf327b612d69fd"
@@ -2835,6 +2884,7 @@ dependencies = [
  "heapless 0.8.0",
  "heapless 0.9.3",
  "log",
+ "nb 1.1.0",
  "openthread",
  "rand_core 0.6.4",
  "rand_core 0.9.5",
@@ -2985,7 +3035,7 @@ dependencies = [
  "defmt",
  "der",
  "digest",
- "domain",
+ "domain 0.12.1",
  "ecdsa",
  "either",
  "elliptic-curve",
@@ -2996,6 +3046,7 @@ dependencies = [
  "heapless 0.9.3",
  "hkdf",
  "hmac",
+ "log",
  "nix 0.30.1",
  "num",
  "num-derive",
@@ -3060,12 +3111,14 @@ source = "git+https://github.com/sysgrok/rs-matter-stack?branch=next#054505c9e30
 dependencies = [
  "bitflags 2.13.0",
  "cfg-if",
+ "edge-mdns",
  "edge-nal",
  "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
  "enumset",
  "heapless 0.9.3",
+ "log",
  "rand_chacha",
  "rand_core 0.6.4",
  "rand_core 0.9.5",
