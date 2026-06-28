@@ -1,5 +1,10 @@
 # AC Mains Power Detection with ESP32
 
+> **⚠️ SUPERSEDED — historical reference only.** The CT-clamp approach below was the
+> first option explored, then set aside in favour of a contactless EMF sensor. The
+> current, working sensor is the buffered LM358 design in
+> **`220AC_EMF_Remote_detector.md`**.
+
 ## Overview
 
 This document summarises the approach for detecting AC mains power presence/absence using a non-invasive inductive sensor connected to an ESP32 microcontroller.
@@ -25,11 +30,11 @@ This is a purpose-built, commercially available signal conditioning board design
 
 ### Wiring
 
-| Adapter Pin | ESP32 Pin |
-|---|---|
-| GND | GND |
-| VCC | 3.3V |
-| SIG | GPIO 32, 33, 34, 35, 36, or 39 (ADC1 pins) |
+| Adapter Pin | ESP32 Pin                                  |
+|-------------|--------------------------------------------|
+| GND         | GND                                        |
+| VCC         | 3.3V                                       |
+| SIG         | GPIO 32, 33, 34, 35, 36, or 39 (ADC1 pins) |
 
 ### CT Sensor
 
@@ -81,8 +86,8 @@ The code samples the ADC over 100 readings and measures the peak-to-peak swing. 
 
 ## Bill of Materials
 
-| Item | Description | Source |
-|---|---|---|
-| SCT-013 | 100A/1v non-invasive CT clamp sensor | Amazon / AliExpress |
-| RBDimmer SCT-013 Adapter | Signal conditioning board | rbdimmer.com |
-| ESP32 DevKit | Microcontroller | Any supplier |
+| Item                     | Description                          | Source              |
+|--------------------------|--------------------------------------|---------------------|
+| SCT-013                  | 100A/1v non-invasive CT clamp sensor | Amazon / AliExpress |
+| RBDimmer SCT-013 Adapter | Signal conditioning board            | rbdimmer.com        |
+| ESP32 DevKit             | Microcontroller                      | Any supplier        |

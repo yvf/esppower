@@ -1,5 +1,11 @@
 # Non-Contact 220V AC EMF Presence Detector
 
+> **⚠️ SUPERSEDED — historical reference only.** This BC547-cascade design only worked
+> with the antenna and ESP within a few inches of the live cable; its high-impedance
+> output could not be run the several feet the installation needs. It was abandoned in
+> favour of the buffered LM358 design in **`220AC_EMF_Remote_detector.md`** (the current,
+> working sensor).
+
 This document outlines the design, wiring, and embedded Rust integration required to build a contactless 50/60Hz electromagnetic field (EMF) detector using an **ESP32-H2** and **BC547** transistors.
 
 > **Design note (revised):** the cascade output is read as an **analog ADC input**, not a digital pin. The original digital design did not work; see [Why the output is read as analog](#-why-the-output-is-read-as-analog-not-digital) for the bench investigation that led here.

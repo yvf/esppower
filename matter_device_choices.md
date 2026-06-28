@@ -13,11 +13,11 @@
 
 Single Matter node, two functional endpoints:
 
-| Endpoint | Device Type | Type ID | Purpose |
-|----------|-------------|---------|---------|
-| 0 | Root Node | — | Required, standard |
-| 1 | On/Off Plug-In Unit | `0x010A` | Actuator control (manual + automatic) |
-| 2 | Contact Sensor | `0x0015` | Downstream power state |
+| Endpoint | Device Type         | Type ID  | Purpose                               |
+|----------|---------------------|----------|---------------------------------------|
+| 0        | Root Node           | —        | Required, standard                    |
+| 1        | On/Off Plug-In Unit | `0x010A` | Actuator control (manual + automatic) |
+| 2        | Contact Sensor      | `0x0015` | Downstream power state                |
 
 ---
 

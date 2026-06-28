@@ -2,6 +2,8 @@
 
 ** Green field prompt
 
+I need you to code an "RCD Reset Controller" project. It must be a rust-based (no-std) application for an Espressif ESP32-H2 controller, using the Matter (over Thread) ecosystem, with the goal of being compatible with Apple HomeKit (the key compatibility here is via Matter / Thread). The application is a device to detect 220AC power, and engage a linear actuator when the power fails, but must also include a manual trigger via HomeKit, as well as the display of the detected power status via HomeKit. You do not need to work out the physical wiring or power supply aspects of this system at this stage. The main hardware components are the Espressif ESP32-H2 controller, an Actuonix L12 linear actuator (L12-50-210-12-I), and a SCT-013-000 100A/1v CT sensor connected to the Esp32-H2 via an RBDimmer SCT-013 Adapter. You need to assign pins on the ESP32 to connect both the linear actuator control wires, as well as the CT power sensor adapter. The behavior of the linear actuator, including the choice of matter device types are documented in the matter_device_choices.md file in this directory. The manuals / specifications for the three main hardware components are in the docs subdirectory, including the full esp32 technical reference, should you need them. Ask me questions as required. You should first architect the solution, including selection of rust libraries required, then plan the code structure, then consider the tests required, finally coding the main functionality. There should be both functional tests, as well as some integration tests, although the latter need to run on the actual hardware, and may need to be interactive so that the physical environment and behavior can be externally confirmed.
+
 * Power detection
 
 ** Potential solutions
@@ -9,6 +11,13 @@
 The ACS712 original proposed solution won't work for 220 AC. Instead considering either an optocoupler (but needs 220v direct connection), or an EMF-based solution.
 
 *** EMF Solution with BCS547 amplification
+
+
+*** CT Sensor with conditioning circuit
+
+SCT-013-000 100A/1v sensor with RBDimmer SCT-013 Sensor Adapter. The code needs to sample the ADC over 100 readings and measure the peak-to-peak swing. A swing above the threshold indicates AC current is flowing (mains present); a flat signal indicates no power.
+
+https://www.poweruc.pl/collections/split-core-current-transformers2/products/split-core-current-transformer-sct013-rated-input-5a-100a?variant=6876754968620
 
 * Actuator
 

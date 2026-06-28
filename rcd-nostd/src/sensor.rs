@@ -1,18 +1,18 @@
 //! Contactless EMF power-presence sensor (esp-hal ADC backend).
 //!
-//! Hardware: a 3-stage BC547 NPN transistor cascade (high-gain amplifier) with a
-//! short spiral copper antenna on the base of Q1 and a 1–10 MΩ bleeder to ground.
-//! The amplified output is fed through a 10 kΩ series resistor into GPIO4.
+//! Hardware: an LM358 op-amp configured as a high-gain, band-limited inverting AC
+//! amplifier, mounted at the antenna and biased to a ~1.65 V virtual ground. Its
+//! low-impedance output is buffered over a multi-foot shielded cable into GPIO4. A
+//! 2.2 nF feedback cap band-limits the stage to ~50 Hz. See `220AC_EMF_Remote_detector.md`.
 //!
-//! GPIO4 is read as an **analog ADC1 input** (channel 3), NOT a digital pin. The
-//! cascade output is an emitter-follower chain clamped by the final transistor's
-//! base-emitter junction to ≈ 0.8 V, so it never crosses the logic-HIGH threshold —
-//! a digital read could never see a transition. Power presence is therefore inferred
-//! from the **peak-to-peak swing** of the 50 Hz signal over a sampling window
-//! (≈750 mV pp when live, ≈300 mV pp ambient). See `220AC_CT_detector.md`.
+//! GPIO4 is read as a **calibrated analog ADC1 input** (channel 3). Calibration
+//! (`AdcCalLine`) corrects the H2's large raw ADC offset/gain error and returns
+//! **millivolts**, so the bias sits mid-range with full headroom instead of clipping
+//! against the ADC ceiling. Power presence is inferred from the **peak-to-peak swing**
+//! of the 50 Hz signal over a sampling window (~200 mV pp live, < 100 mV ambient).
 
 use embassy_time::{Duration, Timer};
-use esp_hal::analog::adc::{Adc, AdcConfig, AdcPin, Attenuation};
+use esp_hal::analog::adc::{Adc, AdcCalLine, AdcConfig, AdcPin, Attenuation};
 use esp_hal::peripherals::{ADC1, GPIO4};
 use esp_hal::Blocking;
 use log::debug;
@@ -32,22 +32,33 @@ impl PowerState {
     }
 }
 
-/// ADC-backed EMF detector. Reads the BC547 cascade output (GPIO4 / ADC1_CH3) as an
+/// GPIO4 / ADC1_CH3 with line-fit (efuse) calibration. The calibrated read returns
+/// **millivolts**, not raw counts — see [`EmfSensor::new`].
+type EmfAdcPin = AdcPin<GPIO4<'static>, ADC1<'static>, AdcCalLine<ADC1<'static>>>;
+
+/// ADC-backed EMF detector. Reads the LM358 amplifier output (GPIO4 / ADC1_CH3) as an
 /// analog signal and infers AC presence from the peak-to-peak swing.
 pub struct EmfSensor {
     adc: Adc<'static, ADC1<'static>, Blocking>,
-    pin: AdcPin<GPIO4<'static>, ADC1<'static>>,
+    pin: EmfAdcPin,
 }
 
 impl EmfSensor {
-    /// Configure GPIO4 as an ADC1 input.
+    /// Configure GPIO4 as a **calibrated** ADC1 input.
     ///
-    /// 11 dB attenuation (≈ 0–3.9 V full scale). The cascade output never exceeds
-    /// ~0.8 V, so this leaves plenty of headroom; lower the attenuation later for
-    /// more resolution if needed.
+    /// 11 dB attenuation (≈ 0–3.3 V range). We use `enable_pin_with_cal` with the
+    /// line-fit (`AdcCalLine`) scheme rather than a raw `enable_pin`: the ESP32-H2's
+    /// uncalibrated ADC has a large built-in offset/gain error (it read ~3730 for a
+    /// 1.65 V input, jamming the operating point against the 4095 ceiling and clipping
+    /// the AC swing). Calibration applies the efuse offset/gain correction and makes
+    /// `read_oneshot` return **millivolts**, so a 1.65 V bias reads ~1650 mV mid-range
+    /// with full headroom for the 50 Hz swing both ways.
     pub fn new(adc1: ADC1<'static>, gpio4: GPIO4<'static>) -> Self {
         let mut config = AdcConfig::new();
-        let pin = config.enable_pin(gpio4, Attenuation::_11dB);
+        let pin = config.enable_pin_with_cal::<GPIO4<'static>, AdcCalLine<ADC1<'static>>>(
+            gpio4,
+            Attenuation::_11dB,
+        );
         let adc = Adc::new(adc1, config);
         Self { adc, pin }
     }
@@ -64,9 +75,13 @@ impl EmfSensor {
         }
         let pp = peak_to_peak(&buf);
         let state = detect_power_from_samples(&buf, EMF_DETECTION_THRESHOLD);
+        let min = buf.iter().copied().min().unwrap_or(0);
+        let max = buf.iter().copied().max().unwrap_or(0);
+        let mean = (buf.iter().map(|&s| s as u32).sum::<u32>() / buf.len() as u32) as u16;
+        // All values are in millivolts (calibrated read).
         debug!(
-            "EMF sensor: peak-to-peak = {} (threshold {}), state = {:?}",
-            pp, EMF_DETECTION_THRESHOLD, state
+            "EMF sensor: pp = {} mV (threshold {} mV), min = {} mV, max = {} mV, mean = {} mV, state = {:?}",
+            pp, EMF_DETECTION_THRESHOLD, min, max, mean, state
         );
         state
     }

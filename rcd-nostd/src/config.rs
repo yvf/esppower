@@ -4,8 +4,9 @@
 
 // ─── Pin assignments (reference only — the HAL consumes the peripheral singletons) ──
 
-/// GPIO4 = ADC1 channel 3. Analog input from the BC547 EMF-detector cascade
-/// (via 10 kΩ series resistor). Read as an ADC, not a digital pin — see [`crate::sensor`].
+/// GPIO4 = ADC1 channel 3. Analog input from the LM358 EMF-amplifier output (over a
+/// shielded cable). Read as a calibrated ADC, not a digital pin — see [`crate::sensor`]
+/// and `220AC_EMF_Remote_detector.md`.
 /// Reference only: the HAL binds the pin by its peripheral singleton, not this number.
 #[allow(dead_code)]
 pub const EMF_SENSOR_PIN: u8 = 4;
@@ -75,13 +76,13 @@ pub const EMF_SAMPLE_COUNT: usize = 400;
 /// Delay between individual ADC reads inside the sampling window (microseconds).
 pub const EMF_SAMPLE_INTERVAL_US: u64 = 100;
 
-/// Peak-to-peak ADC count threshold above which a live 50 Hz field is "present".
-/// 12-bit ADC, 11 dB attenuation (≈ 0–3.9 V full scale → 4095 counts, ≈ 1 count/mV).
+/// Peak-to-peak threshold, in **millivolts**, above which a live 50 Hz field is
+/// "present". The sensor uses a calibrated ADC read (`AdcCalLine`), so samples — and
+/// hence this peak-to-peak value — are already in mV at the ADC pin (no count↔mV
+/// conversion). See [`crate::sensor`].
 ///
-/// Calibrated from scope measurements at the cascade output node (`220AC_CT_detector.md`):
-///   - field present : ~750 mV pp ≈ 790 counts
-///   - field absent  : ~300 mV pp ≈ 315 counts (ambient noise floor)
-/// The threshold sits near the midpoint (~525 mV ≈ 550 counts), leaving ~235 counts
-/// of margin to the noise floor. Raise it if ambient hum causes false positives;
-/// lower it if a real field is missed.
-pub const EMF_DETECTION_THRESHOLD: u16 = 550;
+/// Field-calibrated for the LM358 front end (with the 2.2 nF feedback low-pass):
+///   - field absent  : pp mostly < 100 mV, occasional spikes to ~190 mV
+///   - field present : pp ~200 mV (150–300 mV)
+/// 95 mV sits just above the typical absent floor.
+pub const EMF_DETECTION_THRESHOLD: u16 = 95;
