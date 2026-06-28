@@ -49,17 +49,15 @@ pub const ACTUATOR_RETRACT_DURATION_MS: u64 = 8_000;
 /// power returning within this window cancels the reset entirely.
 pub const POWER_LOSS_DEBOUNCE_MS: u64 = 60_000; // 60 s
 
-/// Delay before the first retry, measured from the initial actuator cycle, if power
-/// has not returned. Each subsequent retry multiplies this by `RETRY_BACKOFF_FACTOR`
-/// (exponential backoff), saturating at `MAX_RETRY_DELAY_MS`.
-pub const INITIAL_RETRY_DELAY_MS: u64 = 120_000; // 2 min
+/// After the first reset cycle, watch this long for power to return. If it stays
+/// *continuously* absent for the whole window, run the second (final) reset cycle;
+/// power returning within it means the first cycle worked → back to monitoring.
+pub const POST_RESET_RECHECK_MS: u64 = 60_000; // 60 s
 
-/// Growth factor applied to the retry delay after each unsuccessful attempt.
-pub const RETRY_BACKOFF_FACTOR: u64 = 2;
-
-/// Upper bound on the exponential backoff between retries. Once reached, the
-/// controller keeps retrying at this interval until power returns.
-pub const MAX_RETRY_DELAY_MS: u64 = 24 * 60 * 60 * 1_000; // 24 h
+/// After the second cycle the controller latches and stops actuating. It re-arms
+/// (returns to normal monitoring) only once power has been *continuously present*
+/// for this long, so a flickering supply can't immediately re-trigger.
+pub const POWER_RESTORE_CONFIRM_MS: u64 = 10_000; // 10 s
 
 // ─── Power-sensor polling ────────────────────────────────────────────────────
 

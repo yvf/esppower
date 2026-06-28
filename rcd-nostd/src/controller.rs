@@ -7,20 +7,22 @@
 //! Flow:
 //!  1. Monitor mains presence. When power is lost, require `POWER_LOSS_DEBOUNCE_MS`
 //!     of *continuous* absence before acting (ignores brief dropouts/glitches).
-//!  2. On confirmed loss, run an actuator cycle (extend → retract) to re-arm the RCD.
-//!  3. If power is still absent afterwards, retry with exponential backoff:
-//!     `INITIAL_RETRY_DELAY_MS`, then ×`RETRY_BACKOFF_FACTOR` each time, capped at
-//!     `MAX_RETRY_DELAY_MS`.
-//!  4. Power returning at any point (during the debounce or any backoff wait) aborts
-//!     the sequence and returns to idle monitoring; the next outage starts fresh.
+//!  2. On confirmed loss, run one actuator cycle (extend → retract) to re-arm the RCD.
+//!  3. Watch a further `POST_RESET_RECHECK_MS`. If power returns, the cycle worked →
+//!     back to monitoring. If it stays absent the whole window, run a second (final)
+//!     actuator cycle.
+//!  4. After the second cycle, *latch*: stop actuating. Re-arm (return to monitoring)
+//!     only once power is *continuously present* for `POWER_RESTORE_CONFIRM_MS`.
+//!  5. Power returning during either wait aborts the sequence and returns to idle
+//!     monitoring; the next outage starts fresh.
 
 use embassy_time::{Duration, Instant, Timer};
 use log::info;
 
 use crate::actuator::Actuator;
 use crate::config::{
-    INITIAL_RETRY_DELAY_MS, MAX_RETRY_DELAY_MS, POWER_LOSS_DEBOUNCE_MS, POWER_POLL_INTERVAL_MS,
-    RETRY_BACKOFF_FACTOR,
+    POST_RESET_RECHECK_MS, POWER_LOSS_DEBOUNCE_MS, POWER_POLL_INTERVAL_MS,
+    POWER_RESTORE_CONFIRM_MS,
 };
 use crate::sensor::{EmfSensor, PowerState};
 
@@ -70,40 +72,41 @@ impl Controller {
                 continue;
             }
 
-            // 3. Confirmed sustained loss → reset attempts with exponential backoff.
-            info!("Controller: sustained power loss confirmed — beginning reset attempts");
-            let mut attempt: u32 = 0;
-            let mut backoff_ms = INITIAL_RETRY_DELAY_MS;
-            loop {
-                attempt += 1;
-                self.run_actuator_cycle(attempt).await;
+            // 3. Confirmed sustained loss → first reset cycle.
+            info!("Controller: sustained power loss confirmed — running reset cycle 1");
+            self.run_actuator_cycle(1).await;
 
-                // Wait out the backoff; if power returns we're done with this outage.
-                info!(
-                    "Controller: attempt {} done — waiting up to {} s for power",
-                    attempt,
-                    backoff_ms / 1_000
-                );
-                if self
-                    .wait_for_power_or_timeout(Duration::from_millis(backoff_ms))
-                    .await
-                {
-                    info!(
-                        "Controller: power restored after attempt {} — back to monitoring",
-                        attempt
-                    );
-                    break;
-                }
-
-                info!("Controller: power still absent after attempt {} — retrying", attempt);
-                backoff_ms = (backoff_ms * RETRY_BACKOFF_FACTOR).min(MAX_RETRY_DELAY_MS);
+            // 4. Re-check: watch a further window for continuous absence.
+            info!(
+                "Controller: cycle 1 done — watching {} s for power",
+                POST_RESET_RECHECK_MS / 1_000
+            );
+            if self
+                .wait_for_power_or_timeout(Duration::from_millis(POST_RESET_RECHECK_MS))
+                .await
+            {
+                info!("Controller: power restored after cycle 1 — back to monitoring");
+                continue;
             }
+
+            // 5. Still absent → second (final) reset cycle.
+            info!("Controller: power still absent — running reset cycle 2 (final)");
+            self.run_actuator_cycle(2).await;
+
+            // 6. Latch: no further cycles. Re-arm only after power returns and holds.
+            info!(
+                "Controller: latched after 2 cycles — re-arming only after {} s of continuous power",
+                POWER_RESTORE_CONFIRM_MS / 1_000
+            );
+            self.wait_for_sustained_power(Duration::from_millis(POWER_RESTORE_CONFIRM_MS))
+                .await;
+            info!("Controller: power restored and held — re-arming, back to monitoring");
         }
     }
 
     /// Run one reset cycle: extend to trip the RCD lever, retract, park.
-    async fn run_actuator_cycle(&mut self, attempt: u32) {
-        info!("Controller: reset attempt {} — actuating", attempt);
+    async fn run_actuator_cycle(&mut self, cycle: u32) {
+        info!("Controller: reset cycle {} — actuating", cycle);
         // TODO(matter): report the plug as "On" while a reset cycle is active.
         self.actuator.extend().await;
         self.actuator.retract().await;
@@ -133,6 +136,31 @@ impl Controller {
             }
         }
         false
+    }
+
+    /// Block until power has been *continuously present* for `required`. Any dropout
+    /// restarts the confirmation, so this only returns once the supply has held for
+    /// the full window. Used to release the post-second-cycle latch.
+    async fn wait_for_sustained_power(&mut self, required: Duration) {
+        loop {
+            // Wait for power to appear.
+            while !self.sample().await.is_present() {
+                Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
+            }
+            // Confirm it stays present for the whole window.
+            let deadline = Instant::now() + required;
+            let mut held = true;
+            while Instant::now() < deadline {
+                Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
+                if !self.sample().await.is_present() {
+                    held = false;
+                    break;
+                }
+            }
+            if held {
+                return;
+            }
+        }
     }
 
     /// Sample the sensor and log any power-state transition.
