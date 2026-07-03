@@ -1,0 +1,75 @@
+{
+   "file_counts" : 14,
+   "file_list" : [
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Drill_PTH_Through.DRL",
+         "layer_name" : "drl"
+      },
+      {
+         "file_describe_code" : 1,
+         "file_name" : "Drill_PTH_Through_Via.DRL",
+         "layer_name" : "nil"
+      },
+      {
+         "file_describe_code" : 4,
+         "file_name" : "FlyingProbeTesting.json",
+         "layer_name" : "nil"
+      },
+      {
+         "file_describe_code" : 2,
+         "file_name" : "Gerber_BoardOutlineLayer.GKO",
+         "layer_name" : "gko"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_BottomLayer.GBL",
+         "layer_name" : "bl"
+      },
+      {
+         "file_describe_code" : 4,
+         "file_name" : "Gerber_BottomSilkscreenLayer.GBO",
+         "layer_name" : "nil"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_BottomSolderMaskLayer.GBS",
+         "layer_name" : "bs"
+      },
+      {
+         "file_describe_code" : 3,
+         "file_name" : "Gerber_DocumentLayer.GDL",
+         "layer_name" : "nil"
+      },
+      {
+         "file_describe_code" : 3,
+         "file_name" : "Gerber_DrillDrawingLayer.GDD",
+         "layer_name" : "dd"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_TopLayer.GTL",
+         "layer_name" : "tl"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_TopPasteMaskLayer.GTP",
+         "layer_name" : "tp"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_TopSilkscreenLayer.GTO",
+         "layer_name" : "to"
+      },
+      {
+         "file_describe_code" : 0,
+         "file_name" : "Gerber_TopSolderMaskLayer.GTS",
+         "layer_name" : "ts"
+      },
+      {
+         "file_describe_code" : 4,
+         "file_name" : "How-to-order-PCB.txt",
+         "layer_name" : "nil"
+      }
+   ]
+}

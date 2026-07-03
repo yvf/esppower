@@ -136,11 +136,11 @@ conversion**; the threshold is a true peak-to-peak voltage.
 
 ### Field-calibrated levels (LM358 + 2.2 nF feedback)
 
-| Condition | Peak-to-peak at GPIO4 |
-|-----------|-----------------------|
-| Field present | ~200 mV (ranges 150–300 mV) |
-| Field absent  | mostly < 100 mV (occasional spikes to ~190 mV) |
-| DC operating point (mean) | ~1285 mV, stable |
+| Condition                 | Peak-to-peak at GPIO4                          |
+|---------------------------|------------------------------------------------|
+| Field present             | ~200 mV (ranges 150-300 mV)                    |
+| Field absent              | mostly < 100 mV (occasional spikes to ~190 mV) |
+| DC operating point (mean) | ~1285 mV, stable                               |
 
 `EMF_DETECTION_THRESHOLD = 95` sits just above the typical absent floor.
 
