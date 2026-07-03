@@ -54,6 +54,11 @@ pub const POWER_LOSS_DEBOUNCE_MS: u64 = 60_000; // 60 s
 /// power returning within it means the first cycle worked → back to monitoring.
 pub const POST_RESET_RECHECK_MS: u64 = 60_000; // 60 s
 
+/// Minimum *continuous* presence before any "power restored" transition is accepted
+/// (during the loss debounce and the post-cycle recheck). Stops a brief glitch on the
+/// EMF sensor from prematurely flipping the state back to present.
+pub const POWER_PRESENT_CONFIRM_MS: u64 = 2_000; // 2 s
+
 /// After the second cycle the controller latches and stops actuating. It re-arms
 /// (returns to normal monitoring) only once power has been *continuously present*
 /// for this long, so a flickering supply can't immediately re-trigger.

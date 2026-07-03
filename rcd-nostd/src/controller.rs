@@ -14,7 +14,10 @@
 //!  4. After the second cycle, *latch*: stop actuating. Re-arm (return to monitoring)
 //!     only once power is *continuously present* for `POWER_RESTORE_CONFIRM_MS`.
 //!  5. Power returning during either wait aborts the sequence and returns to idle
-//!     monitoring; the next outage starts fresh.
+//!     monitoring; the next outage starts fresh. Every "power restored" transition
+//!     requires a brief continuous-presence confirmation (`POWER_PRESENT_CONFIRM_MS`,
+//!     or `POWER_RESTORE_CONFIRM_MS` for the latch release) so a sensor glitch can't
+//!     flip the state.
 
 use embassy_time::{Duration, Instant, Timer};
 use log::info;
@@ -22,7 +25,7 @@ use log::info;
 use crate::actuator::Actuator;
 use crate::config::{
     POST_RESET_RECHECK_MS, POWER_LOSS_DEBOUNCE_MS, POWER_POLL_INTERVAL_MS,
-    POWER_RESTORE_CONFIRM_MS,
+    POWER_PRESENT_CONFIRM_MS, POWER_RESTORE_CONFIRM_MS,
 };
 use crate::sensor::{EmfSensor, PowerState};
 
@@ -124,14 +127,20 @@ impl Controller {
         }
     }
 
-    /// Wait up to `timeout`, polling power every `POWER_POLL_INTERVAL_MS`.
-    /// Returns `true` if power becomes PRESENT during the wait (restored — abort),
-    /// `false` if the timeout elapses with power still absent.
+    /// Wait up to `timeout` for power to be *restored*, polling every
+    /// `POWER_POLL_INTERVAL_MS`. A restoration is only accepted once power has stayed
+    /// present continuously for `POWER_PRESENT_CONFIRM_MS` — a single glitch is ignored
+    /// and the wait continues. Returns `true` if restoration is confirmed (abort the
+    /// reset), `false` if the timeout elapses with power still absent.
     async fn wait_for_power_or_timeout(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
             Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
-            if self.sample().await.is_present() {
+            if self.sample().await.is_present()
+                && self
+                    .confirm_present(Duration::from_millis(POWER_PRESENT_CONFIRM_MS))
+                    .await
+            {
                 return true;
             }
         }
@@ -148,19 +157,24 @@ impl Controller {
                 Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
             }
             // Confirm it stays present for the whole window.
-            let deadline = Instant::now() + required;
-            let mut held = true;
-            while Instant::now() < deadline {
-                Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
-                if !self.sample().await.is_present() {
-                    held = false;
-                    break;
-                }
-            }
-            if held {
+            if self.confirm_present(required).await {
                 return;
             }
         }
+    }
+
+    /// Starting now, verify power stays PRESENT continuously for `required`, polling
+    /// every `POWER_POLL_INTERVAL_MS`. Returns `false` the instant a sample reads
+    /// absent, `true` if it holds for the whole window.
+    async fn confirm_present(&mut self, required: Duration) -> bool {
+        let deadline = Instant::now() + required;
+        while Instant::now() < deadline {
+            Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
+            if !self.sample().await.is_present() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Sample the sensor and log any power-state transition.
