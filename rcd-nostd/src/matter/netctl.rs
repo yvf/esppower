@@ -29,6 +29,43 @@ fn is_attached(ot: &OpenThread) -> bool {
     )
 }
 
+/// Log the identifying fields of a Thread operational dataset (MeshCoP TLVs) so an
+/// attach failure can be cross-checked against the live network. Decodes only the
+/// non-secret TLVs — channel (0x00), PAN ID (0x01), extended PAN ID (0x02), network
+/// name (0x03). The network key (0x05) and PSKc (0x04) are deliberately NOT logged.
+fn log_dataset_summary(tlv: &[u8]) {
+    let mut i = 0;
+    while i + 2 <= tlv.len() {
+        let ty = tlv[i];
+        let len = tlv[i + 1] as usize;
+        let val = tlv.get(i + 2..i + 2 + len);
+        let Some(val) = val else { break };
+        match ty {
+            0x00 if val.len() == 3 => {
+                // page(1) || channel(2, big-endian)
+                let ch = u16::from_be_bytes([val[1], val[2]]);
+                log::info!("[matter] dataset: channel = {ch}");
+            }
+            0x01 if val.len() == 2 => {
+                log::info!(
+                    "[matter] dataset: pan_id = 0x{:04x}",
+                    u16::from_be_bytes([val[0], val[1]])
+                );
+            }
+            0x02 if val.len() == 8 => {
+                log::info!("[matter] dataset: ext_pan_id = {val:02x?}");
+            }
+            0x03 => {
+                if let Ok(name) = core::str::from_utf8(val) {
+                    log::info!("[matter] dataset: network_name = {name:?}");
+                }
+            }
+            _ => {}
+        }
+        i += 2 + len;
+    }
+}
+
 /// `NetCtl`/`ThreadDiag` over an OpenThread instance.
 pub struct OtNetCtl<'a> {
     ot: OpenThread<'a>,
@@ -58,6 +95,12 @@ impl NetCtl for OtNetCtl<'_> {
         let WirelessCreds::Thread { dataset_tlv } = creds else {
             return Err(NetCtlError::Other(ErrorCode::InvalidData.into()));
         };
+
+        log::info!(
+            "[matter] OtNetCtl::connect — applying Thread dataset ({} TLV bytes)",
+            dataset_tlv.len()
+        );
+        log_dataset_summary(dataset_tlv);
 
         self.ot
             .set_active_dataset_tlv(dataset_tlv)

@@ -891,37 +891,14 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f7ff15f82df7d5086fb15dfc1c1e96598a6ded9829840a9bcfa1fa3ccd8d01d"
-dependencies = [
- "domain-macros 0.11.1",
- "heapless 0.8.0",
- "octseq 0.5.2",
- "time",
-]
-
-[[package]]
-name = "domain"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c469892dddfeff64ecfdbc64cf059c77fb0decaeccd4d5d484394bdd6312bac"
 dependencies = [
- "domain-macros 0.12.1",
+ "domain-macros",
  "heapless 0.9.3",
  "jiff",
- "octseq 0.6.1",
-]
-
-[[package]]
-name = "domain-macros"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d1a6796ad411f6812d691955066ad27450196bfb181bb91b66a643cc3e8f5b7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.118",
+ "octseq",
 ]
 
 [[package]]
@@ -946,22 +923,6 @@ dependencies = [
  "elliptic-curve",
  "rfc6979",
  "signature",
-]
-
-[[package]]
-name = "edge-mdns"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73e6e268ceceab96a31eeefb7fc4afbb8f005313de23944a0ecb10a20f382193"
-dependencies = [
- "domain 0.11.1",
- "edge-nal",
- "embassy-futures",
- "embassy-sync 0.7.2",
- "embassy-time",
- "heapless 0.9.3",
- "log",
- "rand_core 0.9.5",
 ]
 
 [[package]]
@@ -1118,7 +1079,6 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "futures-core",
- "log",
 ]
 
 [[package]]
@@ -1485,6 +1445,7 @@ dependencies = [
  "esp-sync",
  "esp-wifi-sys-esp32h2",
  "esp32h2",
+ "log",
 ]
 
 [[package]]
@@ -1503,8 +1464,6 @@ dependencies = [
 [[package]]
 name = "esp-radio"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23fbff98b06a96b6ce3791ecec5c668524052a068e23aacd23afe17ddba844ce"
 dependencies = [
  "allocator-api2",
  "bt-hci",
@@ -1525,11 +1484,18 @@ dependencies = [
  "esp-phy",
  "esp-radio-rtos-driver",
  "esp-sync",
+ "esp-wifi-sys-esp32",
+ "esp-wifi-sys-esp32c2",
+ "esp-wifi-sys-esp32c3",
+ "esp-wifi-sys-esp32c6",
  "esp-wifi-sys-esp32h2",
+ "esp-wifi-sys-esp32s2",
+ "esp-wifi-sys-esp32s3",
  "esp32h2",
  "heapless 0.9.3",
  "ieee802154",
  "instability",
+ "log",
  "num-derive",
  "num-traits",
  "portable-atomic",
@@ -1596,6 +1562,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-storage"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f276ad8a3bdc6b47cd92a3e91013f2e42dce9b3fc5023392063387a1ce2ed69a"
+dependencies = [
+ "critical-section",
+ "document-features",
+ "embedded-storage",
+ "esp-rom-sys",
+]
+
+[[package]]
 name = "esp-sync"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1612,10 +1590,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "esp-wifi-sys-esp32"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2556f38f5292d9735d4e156e276815fc001c9a0a2be0544a575c5fb867129d24"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "esp-wifi-sys-esp32c2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4b3eb3435dae84de611d4384639e61eed862818223e93fa70c525cb6a70127f"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "esp-wifi-sys-esp32c3"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b290846b53db9a3965866964260220b67f2c41cc2dbc0b377e7136239fe168a7"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "esp-wifi-sys-esp32c6"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57649401fc2f906a16e2268de88693724a125adcd0eba89b594a157affcee2d5"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "esp-wifi-sys-esp32h2"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5cf1be2e311f4b4e75b5507c6b007ffc3fcb8c6cb57f83cc6a9569ecdcf58484"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "esp-wifi-sys-esp32s2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a9a7f1bc51e7026c3012cda4f11d8799e5e0c0bb3be85797462219def6c26e"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "esp-wifi-sys-esp32s3"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d8321f44b57d8112cbd8607cc83b85783b9195289acb45532728e3e229e7786"
+dependencies = [
+ "log",
+]
 
 [[package]]
 name = "esp32"
@@ -2574,15 +2609,6 @@ dependencies = [
 
 [[package]]
 name = "octseq"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "126c3ca37c9c44cec575247f43a3e4374d8927684f129d2beeb0d2cef262fe12"
-dependencies = [
- "heapless 0.8.0",
-]
-
-[[package]]
-name = "octseq"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "182eab3e1cd9cdc0ecf1ce3342d9844f3dc7d098f0694569bfdf327b612d69fd"
@@ -2874,6 +2900,8 @@ dependencies = [
  "embassy-futures",
  "embassy-sync 0.7.2",
  "embassy-time",
+ "embedded-storage",
+ "embedded-storage-async",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
@@ -2881,6 +2909,7 @@ dependencies = [
  "esp-println",
  "esp-radio",
  "esp-rtos",
+ "esp-storage",
  "heapless 0.8.0",
  "heapless 0.9.3",
  "log",
@@ -2889,6 +2918,7 @@ dependencies = [
  "rand_core 0.6.4",
  "rand_core 0.9.5",
  "rs-matter-stack",
+ "sequential-storage",
  "static_cell",
  "subtle",
  "tinyrlibc",
@@ -3035,7 +3065,7 @@ dependencies = [
  "defmt",
  "der",
  "digest",
- "domain 0.12.1",
+ "domain",
  "ecdsa",
  "either",
  "elliptic-curve",
@@ -3046,7 +3076,6 @@ dependencies = [
  "heapless 0.9.3",
  "hkdf",
  "hmac",
- "log",
  "nix 0.30.1",
  "num",
  "num-derive",
@@ -3111,14 +3140,12 @@ source = "git+https://github.com/sysgrok/rs-matter-stack?branch=next#054505c9e30
 dependencies = [
  "bitflags 2.13.0",
  "cfg-if",
- "edge-mdns",
  "edge-nal",
  "embassy-futures",
  "embassy-sync 0.8.0",
  "embassy-time",
  "enumset",
  "heapless 0.9.3",
- "log",
  "rand_chacha",
  "rand_core 0.6.4",
  "rand_core 0.9.5",
@@ -3218,6 +3245,15 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 dependencies = [
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "sequential-storage"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "516ed74ad8268ec0d78c574af8fc7e09a9c3a0df63c7692c588a10d7097dea3b"
+dependencies = [
+ "embedded-storage-async",
 ]
 
 [[package]]
@@ -3543,7 +3579,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

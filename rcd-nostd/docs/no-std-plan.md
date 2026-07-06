@@ -11,7 +11,7 @@ bare-metal removes the FreeRTOS/Bluedroid overhead so most of the SRAM is heap.
 | HAL / chip | **esp-hal 1.1** (`esp32h2`, `unstable`)                                             | peripherals, ADC, LEDC, GPIO                                                                                           |
 | RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy 0.10/0.8/0.5                     | scheduler + radio glue                                                                                                 |
 | Heap       | **esp-alloc 0.10**                                                                  | the win: allocate most of 320 KB as heap                                                                               |
-| Radio      | **esp-radio 0.18** (`ieee802154` + BLE)                                             | one crate, both radios + coex                                                                                          |
+| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) — **vendored** (`vendor/esp-radio`)          | one crate, both radios + coex. Vendored to patch ESP32-H2 802.15.4 RX bugs (see `docs/upstream-prs/`); `[patch.crates-io]`.  |
 | Thread     | **openthread** (esp-rs/openthread): `esp-radio`,`udp`,`srp`,`dns-client`,`edge-nal` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; provides edge-nal UDP + SRP (Matter's mDNS-over-Thread) |
 | BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned, see below                                                                                 |
 | Matter     | **rs-matter** (`no_std`) + **rs-matter-stack**                                      | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
@@ -48,6 +48,17 @@ crypto feature subset differs from its prebuilt config. That needs, on PATH:
 > then rebuild.
 
 ## Phases
+
+> **Status (2026-07-05): all phases complete.** The device commissions over BLE in
+> Apple Home, operates over Thread, drives the actuator + reports the contact sensor
+> bidirectionally, and persists its pairing across reboots. Two things beyond the
+> original plan proved necessary: (a) **vendoring esp-radio** to fix ESP32-H2 802.15.4
+> RX (`docs/upstream-prs/`), and (b) switching from `run_coex` to **non-concurrent
+> `run`** (BLE only while un-commissioned, Thread-only once paired) — the H2's single
+> shared radio can't run BLE + Thread reliably at once. Persistence (Matter fabric +
+> OpenThread SRP key) is flash-backed (`src/matter/kv.rs`, `ot_settings.rs`); flash
+> writes are kept off the radio hot path (deferred / whitelisted) to avoid starving
+> 802.15.4 during SRP registration.
 
 1. **[DONE] Skeleton** — esp-hal+esp-rtos+esp-radio+embassy+heap boot. Builds in ~27 s.
 2. **[DONE — builds] Thread up** — openthread `srp`-style: radio (`EspRadio`/

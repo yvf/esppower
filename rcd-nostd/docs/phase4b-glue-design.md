@@ -1,5 +1,15 @@
 # Phase 4b — rs-matter-stack transport glue (design / roadmap)
 
+> **Status (2026-07-05): fully implemented and working on hardware.** All five
+> adapters exist under `src/matter/` (`net.rs`, `netif.rs`, `mdns.rs`, `netctl.rs`,
+> `gatt.rs`) and the stack commissions + operates end-to-end. **Key deviation from
+> the plan below:** the run loop uses **non-concurrent `stack.run(...)`, NOT
+> `run_coex(...)`** — on the H2's single shared radio, BLE + Thread simultaneously is
+> unreliable, so BLE runs only while un-commissioned and shuts off once a fabric
+> exists (`PreexistingWireless` implements both `Thread`+`Gatt` and `ThreadCoex`, so
+> it's the same five adapters, different orchestration). See `src/matter/stack.rs`.
+> The C2 variable-length wrinkle (below) was solved with a `heapless 0.9` Vec value.
+
 Goal: run a Matter-over-Thread node by feeding rs-matter-stack our openthread
 (Thread) + trouble (BLE) transports. The full dependency graph already builds
 (Phase 4a); this is the integration code.

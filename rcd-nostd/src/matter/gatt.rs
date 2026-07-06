@@ -8,6 +8,7 @@
 //! the GATT-server half is trouble (reused from the Phase-3 BLE code).
 
 use embassy_futures::select::{select, Either};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 
 // heapless 0.9 — trouble's version, the one its `AsGatt for Vec<u8,N>` is on.
 use heapless_09::Vec as HVec;
@@ -74,6 +75,14 @@ impl<C: Controller> GattPeripheral for OtGattPeripheral<C> {
         service_adv: &AdvData,
     ) -> Result<(), Error> {
         log::info!("[matter] OtGattPeripheral::run starting (service '{service_name}')");
+
+        // Enable relaxed MTU negotiation. Without it, rs-matter falls back to the 23-byte
+        // MIN_MTU on *any* mismatch between our GATT MTU (251) and the commissioner's
+        // proposed BTP MTU — and those practically never match, so every session ran at
+        // MTU 23. Relaxed mode instead uses min(peer, ours, MAX_MTU=247). Paired with the
+        // handshake ATT_MTU=0 substitution in `serve_conn`, this lifts BTP to ~247.
+        btp.set_relaxed_mtu_nego(true);
+
         // BLE is used once, for the commissioning window; `run` loops internally.
         let controller = self
             .controller
@@ -141,6 +150,10 @@ async fn advertise_btp<'a, 'b, C: Controller>(
     server: &'b BtpServer<'a>,
     adv_data: &[u8],
 ) -> Result<GattConnection<'a, 'b, DefaultPacketPool>, BleHostError<C::Error>> {
+    // Default advertising interval (160 ms). We commission in non-concurrent mode (see the
+    // `stack.run(...)` note in stack.rs): BLE runs ONLY while the device is un-commissioned,
+    // with Thread not yet attached, so there is no BLE↔802.15.4 coexistence contention to
+    // avoid here — fast advertising just means quicker discovery by the commissioner.
     let advertiser = peripheral
         .advertise(
             &Default::default(),
@@ -170,25 +183,105 @@ async fn serve_conn<P: PacketPool>(
     // latched at connect would pin BTP to 23 and stall commissioning (Apple → "Accessory
     // Not Found").
 
+    // C2 indications must be enabled by the peer (a CCCD write) before we send anything:
+    // trouble's `indicate()` *silently drops* the packet and still returns `Ok` when the
+    // subscription isn't active (see `Characteristic::indicate` → `should_indicate`). The
+    // BlueZ chip-tool writes the BTP handshake to C1 *before* subscribing to C2, so firing
+    // the handshake-response indication the instant the C1 write lands races the CCCD
+    // write and gets dropped — the commissioner then times out waiting for the response.
+    // This signal latches once the peer enables C2 indications; the outgoing pump waits on
+    // it before its first send. Both pumps run cooperatively under one `select`, so a
+    // NoopRawMutex is sufficient.
+    let subscribed: Signal<NoopRawMutex, ()> = Signal::new();
+    let c2_cccd_handle = server.btp.c2.cccd_handle;
+
     let incoming = async {
         loop {
             match conn.next().await {
-                GattConnectionEvent::Disconnected { .. } => break,
+                GattConnectionEvent::Disconnected { reason } => {
+                    log::info!("[matter] BTP incoming: peer disconnected (reason {reason:?})");
+                    break;
+                }
                 GattConnectionEvent::Gatt { event } => {
                     if let GattEvent::Write(w) = &event {
                         if w.handle() == server.btp.c1.handle {
                             let mtu = conn.raw().att_mtu();
-                            let _ = btp.process_incoming(Some(mtu), addr, w.data());
+                            let d = w.data();
+                            log::info!(
+                                "[matter] BTP C1 write: {} bytes (att_mtu={})",
+                                d.len(),
+                                mtu
+                            );
+                            // The BTP handshake request is a 9-byte segment with the H
+                            // (handshake) flag in bit 6 of byte 0; its bytes 6..8 carry the
+                            // commissioner's proposed ATT_MTU (little-endian). Per the Matter
+                            // spec a value of 0 means "use the GATT-negotiated ATT MTU". With
+                            // relaxed MTU negotiation enabled (see `run`), rs-matter takes
+                            // min(req.mtu, gatt_mtu, MAX_MTU) — but req.mtu==0 would underflow
+                            // to a bogus MTU. So when the field is 0 we substitute our real
+                            // ATT MTU into a patched copy before handing it to rs-matter. This
+                            // lifts BTP off the 23-byte floor (which segmented the ~670-byte
+                            // AttestationResponse into ~40 windowed pieces) up to ~247.
+                            let mut patched: HVec<u8, BTP_BUF> = HVec::new();
+                            let d = if d.len() >= 8 && d.first().is_some_and(|b| b & 0x40 != 0) {
+                                let cli_mtu = u16::from_le_bytes([d[6], d[7]]);
+                                log::info!(
+                                    "[matter] BTP handshake req: {d:02x?} → client ATT_MTU field = {cli_mtu}"
+                                );
+                                if cli_mtu == 0 {
+                                    let _ = patched.extend_from_slice(d);
+                                    let sub = mtu.to_le_bytes();
+                                    patched[6] = sub[0];
+                                    patched[7] = sub[1];
+                                    log::info!(
+                                        "[matter] BTP handshake ATT_MTU=0 → substituting {mtu}"
+                                    );
+                                    &patched[..]
+                                } else {
+                                    d
+                                }
+                            } else {
+                                d
+                            };
+                            if let Err(e) = btp.process_incoming(Some(mtu), addr, d) {
+                                log::warn!("[matter] BTP process_incoming error: {e:?}");
+                            }
+                        } else if Some(w.handle()) == c2_cccd_handle {
+                            // CCCD write: bit 1 (0x02) enables indications. `accept()` below
+                            // records the subscription in the server; signal so the outgoing
+                            // pump may start sending.
+                            let enabled = w.data().first().is_some_and(|b| b & 0x02 != 0);
+                            log::info!("[matter] BTP C2 CCCD write: indications enabled={enabled}");
+                            if enabled {
+                                // Accept first so the server's should_indicate() is true
+                                // before the outgoing pump wakes.
+                                match event.accept() {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => log::warn!("[matter] BTP CCCD accept error: {e:?}"),
+                                }
+                                subscribed.signal(());
+                                continue;
+                            }
                         }
                     }
-                    let _ = event.accept();
+                    // Accept must fire so the peer gets its ATT write/read response;
+                    // log a failure rather than swallowing it.
+                    match event.accept() {
+                        Ok(reply) => reply.send().await,
+                        Err(e) => log::warn!("[matter] BTP event.accept error: {e:?}"),
+                    }
                 }
                 _ => {}
             }
         }
+        log::info!("[matter] BTP incoming pump exited");
     };
 
     let outgoing = async {
+        // Wait until the peer has enabled C2 indications, else the handshake response is
+        // silently dropped (see the `subscribed` note above).
+        subscribed.wait().await;
+        log::info!("[matter] BTP C2 subscribed — starting outgoing pump");
         let mut buf = [0u8; BTP_BUF];
         loop {
             btp.wait_outgoing().await;
@@ -198,12 +291,20 @@ async fn serve_conn<P: PacketPool>(
                 Ok(len) => {
                     let mut value: HVec<u8, BTP_BUF> = HVec::new();
                     let _ = value.extend_from_slice(&buf[..len]);
-                    let _ = server.btp.c2.indicate(conn, &value).await;
+                    log::info!("[matter] BTP C2 indicate: {len} bytes (att_mtu={mtu})");
+                    if let Err(e) = server.btp.c2.indicate(conn, &value).await {
+                        log::warn!("[matter] BTP c2.indicate error: {e:?}");
+                    }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    log::warn!("[matter] BTP process_outgoing error: {e:?}");
+                    break;
+                }
             }
         }
+        log::info!("[matter] BTP outgoing pump exited");
     };
 
     select(incoming, outgoing).await;
+    log::info!("[matter] serve_conn returning — BTP session over");
 }

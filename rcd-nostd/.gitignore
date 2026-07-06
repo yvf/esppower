@@ -7,3 +7,8 @@
 /run.out
 /build.log
 .DS_Store
+# Serial-monitor / tool captures (contain runtime logs; chip-tool.md/.out also
+# carry the Active Operational Dataset incl. the Thread network key — never commit)
+/esp*.out
+/chip-tool.out
+/chip-tool.md

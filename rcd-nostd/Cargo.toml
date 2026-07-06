@@ -11,11 +11,29 @@ name = "rcd-nostd"
 path = "src/main.rs"
 harness = false
 
+[features]
+# Normal firmware: BLE commissioning + the full Matter stack. `matter-ble` also turns
+# on `esp-radio/ble`, so the BLE controller is compiled into the radio subsystem.
+default = ["matter-ble"]
+matter-ble = ["esp-radio/ble"]
+
+# Diagnostic: skip BLE/Matter entirely and attach Thread directly from a dataset
+# supplied at build time via the THREAD_TEST_DATASET env var (hex TLV). Build it with
+# `--no-default-features` so `esp-radio/ble` is NOT compiled in — this isolates the
+# 802.15.4 radio to check whether the BLE feature itself breaks 802.15.4 RX:
+#   THREAD_TEST_DATASET=0e08... ./build.sh run --release --no-default-features --features thread-only-test
+thread-only-test = []
+
 # ─── Core no-std esp-hal stack (version matrix from esp-rs/openthread esp example) ──
 [dependencies]
 esp-hal       = { version = "1.1", features = ["esp32h2", "log-04", "unstable", "exception-handler"] }
 esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"] }
-esp-radio     = { version = "0.18", features = ["esp32h2", "unstable", "ieee802154", "ble"] }
+# `ble` is added via the `matter-ble` cargo feature (on by default) so the thread-only
+# diagnostic can build without it (`--no-default-features`) to isolate 802.15.4.
+# `log-04` routes esp-radio's internal logging (info!/warn!/trace!) to the `log` crate
+# (esp-println) — otherwise those macros are no-ops. Needed to see the 802.15.4 driver's
+# own diagnostics (e.g. the vendored RX-interrupt debug).
+esp-radio     = { version = "0.18", features = ["esp32h2", "unstable", "ieee802154", "log-04"] }
 esp-alloc     = { version = "0.10" }
 esp-backtrace = { version = "0.19", features = ["esp32h2", "panic-handler", "println"] }
 esp-println   = { version = "0.17", features = ["esp32h2", "log-04"] }
@@ -34,6 +52,13 @@ log            = "0.4"
 nb             = "1.1"
 critical-section = "1.2"
 static_cell    = "2.1"
+# Flash-backed persistence for Matter commissioning + Thread network (survive reboot).
+# esp-storage = raw NOR flash (embedded-storage NorFlash); sequential-storage = a keyed
+# blob map over a flash region (the `nvs` partition, located via esp-bootloader-esp-idf).
+esp-storage    = { version = "0.7", features = ["esp32h2", "bytewise-read"] }
+sequential-storage = "4"
+embedded-storage = "0.3"
+embedded-storage-async = "0.4"
 heapless       = "0.8"
 # trouble-host 0.6 uses heapless 0.9; its `AsGatt for Vec<u8,N>` is on that type,
 # so the BTP C2 characteristic value must be a 0.9 Vec (aliased to avoid clashing
@@ -62,11 +87,17 @@ trouble-host = { version = "0.6", features = ["default-packet-pool-mtu-255", "de
 
 # Matter: the generic rs-matter-stack (no_std, alloc + rustcrypto) on rs-matter.
 # The transport glue (GattPeripheral over trouble, Thread over openthread) is ours.
-# `log` is essential: it forwards to `rs-matter/log`, which is the ONLY way to get
-# rs-matter's internal logging — the commissioning QR code + `PairingCode:` line +
-# "Device is not commissioned yet" — to actually emit. Without it those macros are
-# compiled to no-ops and the device advertises silently with no pairing code shown.
-rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next", default-features = false, features = ["rustcrypto", "alloc", "log"] }
+#
+# NOTE: the `log` feature is deliberately OMITTED. It forwards to `rs-matter/log`,
+# which turns on rs-matter's internal logging — including `error!("...{:?}", status)`
+# on the (benign) per-attribute wildcard-read path (rs-matter dm/types/reply.rs). That
+# Debug-formats a deeply-nested AttrStatus/AttrPath, and the recursion, stacked on the
+# already-deep commissioning + crypto call chain, OVERFLOWS the main task stack (all
+# leftover RWDATA) and crashes with an illegal-instruction at a garbage PC mid-format.
+# Since the TEST pairing credentials are fixed and known, we print them ourselves at
+# startup (see matter::stack) instead of relying on rs-matter's QR/PairingCode logging.
+# Re-enable only if you also enlarge the stack headroom (shrink the heap/bump statics).
+rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next", default-features = false, features = ["rustcrypto", "alloc"] }
 
 # rs-matter-stack consumes rs-matter from crates.io; redirect both to the
 # coordinated `sysgrok` forks (next). Patches only take effect from the root crate.
@@ -78,6 +109,11 @@ rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch =
 # (subtle 2.4→2.6 is API-compatible for ccm's constant-time tag compare) so subtle
 # unifies to 2.6.1. See docs/no-std-plan.md.
 ccm             = { path = "vendor/ccm" }
+# esp-radio 0.18.0 vendored to patch its ESP32-H2 802.15.4 RX path: the radio
+# transmits fine but never delivers a received frame on H2 (OpenThread stays
+# Detached — every MLE attach gets no parent response). See vendor/esp-radio and
+# src/ieee802154/raw.rs. Drop this once esp-radio ships an H2 802.15.4 RX fix.
+esp-radio       = { path = "vendor/esp-radio" }
 
 [profile.dev]
 opt-level = "z"   # esp-hal: debug is too slow; always optimize a little
@@ -87,3 +123,6 @@ opt-level     = "z"
 lto           = "fat"
 codegen-units = 1
 debug         = 2
+
+[profile.release.package.esp-radio]
+opt-level = 3

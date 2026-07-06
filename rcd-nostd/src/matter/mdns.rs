@@ -69,6 +69,16 @@ impl<'a> OtMdns<'a> {
             self.ot
                 .srp_set_conf(&SrpConf {
                     host_name: &hostname,
+                    // Shorten the SRP leases from OpenThread's defaults (2 h lease /
+                    // 14-day KEY lease). The key-lease is what reserves the hostname for
+                    // our SRP key on the border router: with the 14-day default, if the
+                    // device is re-commissioned with a new key (e.g. after a factory
+                    // reset) it collides with the stale reservation (OT_ERROR_DUPLICATED)
+                    // for up to two weeks. 1 h means a stale reservation clears quickly;
+                    // the device auto-renews well within the interval so normal operation
+                    // is unaffected.
+                    default_lease_secs: 3600,
+                    default_key_lease_secs: 3600,
                     ..SrpConf::new()
                 })
                 .map_err(to_err)?;

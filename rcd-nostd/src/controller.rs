@@ -19,6 +19,7 @@
 //!     or `POWER_RESTORE_CONFIRM_MS` for the latch release) so a sensor glitch can't
 //!     flip the state.
 
+use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Instant, Timer};
 use log::info;
 
@@ -27,6 +28,7 @@ use crate::config::{
     POST_RESET_RECHECK_MS, POWER_LOSS_DEBOUNCE_MS, POWER_POLL_INTERVAL_MS,
     POWER_PRESENT_CONFIRM_MS, POWER_RESTORE_CONFIRM_MS,
 };
+use crate::link;
 use crate::sensor::{EmfSensor, PowerState};
 
 pub struct Controller {
@@ -59,8 +61,10 @@ impl Controller {
         self.note_power(baseline);
 
         loop {
-            // 1. Idle until power is lost.
-            self.wait_until_absent().await;
+            // 1. Idle until power is lost. A HomeKit manual-reset request is honored
+            //    *inside* every poll wait (see `poll_power`), so it works in any state —
+            //    idle, mid-debounce, or latched — not only while idle.
+            self.wait_for_loss().await;
 
             // 2. Debounce: require continuous absence before acting.
             info!(
@@ -107,24 +111,41 @@ impl Controller {
         }
     }
 
-    /// Run one reset cycle: extend to trip the RCD lever, retract, park.
+    /// Run one reset cycle: extend to trip the RCD lever, retract, park. Reports the
+    /// Matter On/Off plug as "On" for the duration of the cycle and "Off" once complete
+    /// (covers both manual and automatic cycles), keeping HomeKit's tile consistent.
     async fn run_actuator_cycle(&mut self, cycle: u32) {
         info!("Controller: reset cycle {} — actuating", cycle);
-        // TODO(matter): report the plug as "On" while a reset cycle is active.
+        link::set_plug_active(true);
         self.actuator.extend().await;
         self.actuator.retract().await;
         self.actuator.idle();
-        // TODO(matter): report the plug as "Off" now that the cycle is complete.
+        link::set_plug_active(false);
     }
 
-    /// Poll the sensor until a reading is ABSENT, then return.
-    async fn wait_until_absent(&mut self) {
-        loop {
-            if !self.sample().await.is_present() {
-                return;
-            }
-            Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
+    /// One poll tick. Waits up to `POWER_POLL_INTERVAL_MS`, but wakes immediately if
+    /// HomeKit requests a manual reset — in which case it runs one full actuator cycle
+    /// *now* (safe: we are between polls, never mid-actuation) before sampling. This is
+    /// the single choke-point through which every wait in the controller passes, so a
+    /// manual reset is honored in ANY state (idle, debounce, re-check, or latched) without
+    /// ever interrupting an in-progress cycle. Returns the sampled power state.
+    async fn poll_power(&mut self) -> PowerState {
+        if let Either::First(()) = select(
+            link::wait_manual_trigger(),
+            Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)),
+        )
+        .await
+        {
+            info!("Controller: manual reset requested via Matter — running one cycle");
+            self.run_actuator_cycle(0).await;
         }
+        self.sample().await
+    }
+
+    /// Idle until mains power is lost. A manual reset requested while idle is handled
+    /// transparently by `poll_power` (runs a cycle, keeps monitoring).
+    async fn wait_for_loss(&mut self) {
+        while self.poll_power().await.is_present() {}
     }
 
     /// Wait up to `timeout` for power to be *restored*, polling every
@@ -135,8 +156,7 @@ impl Controller {
     async fn wait_for_power_or_timeout(&mut self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
-            Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
-            if self.sample().await.is_present()
+            if self.poll_power().await.is_present()
                 && self
                     .confirm_present(Duration::from_millis(POWER_PRESENT_CONFIRM_MS))
                     .await
@@ -152,10 +172,8 @@ impl Controller {
     /// the full window. Used to release the post-second-cycle latch.
     async fn wait_for_sustained_power(&mut self, required: Duration) {
         loop {
-            // Wait for power to appear.
-            while !self.sample().await.is_present() {
-                Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
-            }
+            // Wait for power to appear (manual reset honored via `poll_power`).
+            while !self.poll_power().await.is_present() {}
             // Confirm it stays present for the whole window.
             if self.confirm_present(required).await {
                 return;
@@ -169,8 +187,7 @@ impl Controller {
     async fn confirm_present(&mut self, required: Duration) -> bool {
         let deadline = Instant::now() + required;
         while Instant::now() < deadline {
-            Timer::after(Duration::from_millis(POWER_POLL_INTERVAL_MS)).await;
-            if !self.sample().await.is_present() {
+            if !self.poll_power().await.is_present() {
                 return false;
             }
         }
@@ -188,7 +205,9 @@ impl Controller {
         if power != self.last_power_state {
             info!("Controller: power state changed to {:?}", power);
             self.last_power_state = power;
-            // TODO(matter): report contact-sensor state (closed = power present).
         }
+        // Mirror to the Matter contact sensor (closed = power present). Idempotent — only
+        // pushes a subscription report when the value actually changes.
+        link::set_power_present(power.is_present());
     }
 }

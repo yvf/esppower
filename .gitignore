@@ -12,3 +12,6 @@ target/
 
 # macOS
 .DS_Store
+
+# Claude Code session pointer (local)
+/claude-latest-session
