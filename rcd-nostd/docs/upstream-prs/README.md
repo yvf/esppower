@@ -1,18 +1,31 @@
 # Upstream PRs — esp-radio ESP32-H2 802.15.4 fixes
 
-> **STATUS (2026-07-05) — these PR write-ups are being reconciled with the final
-> vendored patch set and are partly stale.** After further hardware bring-up the actual
-> patches in `vendor/esp-radio` are: **(1)** ext-address filter byte order [PR 01,
-> confirmed root cause, KEEP]; **(2)** re-arm RX on all abort events; **(3)**
-> `ensure_receive_enabled` → no-op; **(4)** deliver on `RxDone` + **(5)** the matching
-> `isr_handle_ack_tx_done` de-dup [(2)–(5) = the receive-path PR, KEEP]; **(6)** ACK
-> **coex** PTI MIDDLE→HIGH (this REPLACED the *RX-scene* coex-priority change described
-> in PR 02 §4, which was **reverted** — it starved BLE discovery); **(7)** enhanced-ACK
-> TX for 802.15.4-2015 version-2 frames (a separate concern; dormant unless the peer
-> sends v2 ack-required frames). The docs below still describe PR 02 §4 as an RX-scene
-> priority bump — that is out of date. This README + the PR files will be rewritten to
-> the minimal upstreamable set once the de-vendoring review settles which of (6)/(7) are
-> load-bearing.
+> **STATUS (2026-07-05) — final vendored patch set (post de-vendoring review). The
+> detailed PR files below (01, 02) are partly stale and need a rewrite pass before actual
+> submission.** Checked against upstream `esp-radio` **1.0.0-beta.0** (latest): it STILL
+> has the root-cause bugs — `ext_addr.to_le_bytes()`, `ensure_receive_enabled` restarting
+> RX, and `isr_handle_rx_done` deferring delivery to a `AckTxDone` that never fires on H2.
+> So **the vendor cannot be dropped**; the goal is a minimal, upstreamable diff.
+>
+> The vendored patches, all in `src/ieee802154/`, now number **six** (a coex-tuning
+> seventh was removed in review):
+> 1. **ext-address filter byte order** (`mod.rs`, 1 line) — PR 01, confirmed root cause.
+> 2. **re-arm RX on all abort events** in `enable_rx` (`raw.rs`).
+> 3. **`ensure_receive_enabled` → no-op** (`raw.rs`) — stop restarting RX mid-frame.
+> 4. **deliver on `RxDone`** for all frames (`raw.rs`) — AckTxDone is unreliable on H2.
+> 5. **`isr_handle_ack_tx_done` de-dup** (`raw.rs`) — matches (4); avoids double-delivery.
+> 6. **enhanced-ACK TX** for 802.15.4-2015 v2 ack-required frames (`raw.rs` + `hal.rs`
+>    `enhack_generate_done_notify`) — completes upstream's stubbed `should_send_enhanced_ack`
+>    (which today parks the radio in `TxEnhAck` forever and never sends the ACK). Kept as
+>    **protective**: without it, the first v2 ack-required frame would wedge RX.
+>
+> **REMOVED in review:** the ACK-**coex**-PTI MIDDLE→HIGH change. It came from the
+> concurrent (`run_coex`) commissioning era; this firmware now commissions
+> **non-concurrently** (BLE off once paired), so 802.15.4 never contends with BLE while
+> ACKing Thread traffic — MIDDLE (upstream default) suffices, and dropping it keeps the
+> diff to pure RX-correctness. (2)–(5) are the receive-path PR; PR 02 §4's *RX-scene*
+> priority bump was already reverted earlier and is NOT in the tree — that section of the
+> doc is out of date.
 
 
 

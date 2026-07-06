@@ -18,7 +18,6 @@ use crate::{
     radio_clocks::{clocks_ll::enable_ieee802154, init_radio_clocks},
     sys::include::{
         ieee802154_coex_event_t,
-        ieee802154_coex_event_t_IEEE802154_HIGH,
         ieee802154_coex_event_t_IEEE802154_IDLE,
         ieee802154_coex_event_t_IEEE802154_LOW,
         ieee802154_coex_event_t_IEEE802154_MIDDLE,
@@ -157,18 +156,14 @@ fn ieee802154_mac_init(radio: IEEE802154<'_>) {
 
     set_ed_sample_mode(EdSampleMode::Avg);
 
-    // [RCD PATCH] ACK coex priority MIDDLE -> HIGH. On the ESP32-H2 the 802.15.4 radio
-    // shares the antenna with BLE via the coexistence arbiter. With BLE advertising (even
-    // with no connection), the arbiter preempts 802.15.4 constantly — observed as a flood
-    // of RxAbort reason 7 (CoexBreak) and, critically, TxAckCoexBreak: the hardware
-    // immediate ACK for a received unicast frame loses arbitration and never reaches air,
-    // so the peer retransmits (OpenThread logs "Failed to process UDP: Duplicated") and the
-    // link is unreliable (SRP timeouts, eventual child eviction). Unlike raising the RX
-    // *scene* priority (which makes 802.15.4 hold the radio continuously and starved BLE
-    // discovery — reverted earlier), the ACK PTI only applies to the brief (~0.3 ms) ACK
-    // transmit window, so boosting it to HIGH lets each ACK win its arbitration without
-    // otherwise disturbing BLE advertising.
-    unsafe { esp_coex_ieee802154_ack_pti_set(ieee802154_coex_event_t_IEEE802154_HIGH) };
+    // NOTE: ACK coex PTI left at the upstream default MIDDLE. An earlier RCD patch raised
+    // this to HIGH to win ACK arbitration against BLE, but that was for the *concurrent*
+    // (run_coex) commissioning model. This firmware now commissions NON-concurrently
+    // (BLE only while un-commissioned, radio is Thread-only once paired — see
+    // matter/stack.rs), so 802.15.4 never contends with BLE while it is ACKing Thread
+    // traffic; MIDDLE (= upstream) is sufficient and keeps the vendored diff to pure RX
+    // correctness fixes.
+    unsafe { esp_coex_ieee802154_ack_pti_set(ieee802154_coex_event_t_IEEE802154_MIDDLE) };
     ieee802154_set_txrx_pti(Ieee802154TxRxScene::Idle);
 
     unsafe {
