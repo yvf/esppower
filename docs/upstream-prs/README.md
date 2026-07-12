@@ -7,8 +7,7 @@
 > RX, and `isr_handle_rx_done` deferring delivery to a `AckTxDone` that never fires on H2.
 > So **the vendor cannot be dropped**; the goal is a minimal, upstreamable diff.
 >
-> The vendored patches, all in `src/ieee802154/`, now number **six** (a coex-tuning
-> seventh was removed in review):
+> The vendored patches, all in `src/ieee802154/`:
 > 1. **ext-address filter byte order** (`mod.rs`, 1 line) — PR 01, confirmed root cause.
 > 2. **re-arm RX on all abort events** in `enable_rx` (`raw.rs`).
 > 3. **`ensure_receive_enabled` → no-op** (`raw.rs`) — stop restarting RX mid-frame.
@@ -18,15 +17,6 @@
 >    `enhack_generate_done_notify`) — completes upstream's stubbed `should_send_enhanced_ack`
 >    (which today parks the radio in `TxEnhAck` forever and never sends the ACK). Kept as
 >    **protective**: without it, the first v2 ack-required frame would wedge RX.
->
-> **REMOVED in review:** the ACK-**coex**-PTI MIDDLE→HIGH change. It came from the
-> concurrent (`run_coex`) commissioning era; this firmware now commissions
-> **non-concurrently** (BLE off once paired), so 802.15.4 never contends with BLE while
-> ACKing Thread traffic — MIDDLE (upstream default) suffices, and dropping it keeps the
-> diff to pure RX-correctness. (2)–(5) are the receive-path PR; PR 02 §4's *RX-scene*
-> priority bump was already reverted earlier and is NOT in the tree — that section of the
-> doc is out of date.
-
 
 
 Five bugs in `esp-rs/esp-hal`'s `esp-radio` crate that together made IEEE 802.15.4
@@ -36,10 +26,10 @@ bringing up a Matter-over-Thread device on the H2; the device now attaches as a 
 
 Grouped into two independent PRs:
 
-| File | PR | Scope |
-|------|----|-------|
+| File                                                                                         | PR                            | Scope                                                                                                                                                                                |
+|----------------------------------------------------------------------------------------------|-------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [`01-ieee802154-ext-addr-filter-byte-order.md`](01-ieee802154-ext-addr-filter-byte-order.md) | ext-address filter byte order | `mod.rs`, 1 line. **Root cause** of "attach impossible": the HW ext-address filter was byte-reversed, so unicast frames addressed to the node were never accepted (only broadcasts). |
-| [`02-h2-802154-receive-path.md`](02-h2-802154-receive-path.md) | receive path reliability | `raw.rs`, 4 related fixes: re-arm RX on abort, don't restart RX mid-frame, deliver on `RxDone` instead of the never-firing `AckTxDone`, and raise RX coex priority. |
+| [`02-h2-802154-receive-path.md`](02-h2-802154-receive-path.md)                               | receive path reliability      | `raw.rs`, 4 related fixes: re-arm RX on abort, don't restart RX mid-frame, deliver on `RxDone` instead of the never-firing `AckTxDone`, and raise RX coex priority.                  |
 
 The two PRs are independent and can be reviewed/merged separately, but **both** are
 required for a working Thread attach: PR 02 makes the receiver reliably complete and
