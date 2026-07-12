@@ -146,14 +146,18 @@ pub async fn run_matter(
     );
     let contact = ContactHandler::new(Dataver::new_rand(&mut rand));
 
-    // Load persisted commissioning state ONCE into the (reused) stack, then decide the mode
-    // + print the QR once. On a restart the fabric is already loaded, so this is not
-    // repeated — the device comes straight back up operational over Thread.
+    // Flash-backed KV over the `nvs` partition (fabrics + Thread networks store), built
+    // ONCE: `FlashKv::new()` claims a module `StaticCell` buffer, so calling it twice
+    // panics. `startup` loads the persisted fabric into the (reused) stack — deciding the
+    // mode — and the same store is then wrapped as the KV and shared with every run below
+    // by reference (`&kv`; `impl KvBlobStoreAccess for &T`). On a restart the fabric is
+    // already loaded, so this is not repeated — the device stays operational over Thread.
+    let mut store = FlashKv::new()?;
     let commissioned_before = {
-        let mut store = FlashKv::new()?;
         stack.startup(&crypto, &mut store).await?;
         stack.matter().is_commissioned()
     };
+    let kv = stack.matter().kv(store);
 
     if commissioned_before {
         // Already paired: the non-concurrent run() skips BLE and operates over Thread.
@@ -200,8 +204,10 @@ pub async fn run_matter(
             .take()
             .unwrap_or_else(|| unsafe { esp_hal::peripherals::BT::steal() });
 
-        // Everything the stack consumes by value, rebuilt for this run. Wrapped so a setup
-        // failure is caught by the loop below rather than escaping `run_matter`.
+        // Rebuild what `run()` takes by value and can't be shared: the BLE controller and
+        // the handler chain. (The KV is build-once and shared by reference; `stack`,
+        // `crypto`, `plug`/`contact` live outside the loop.) Wrapped in an async block so a
+        // setup failure is caught by the loop below rather than escaping `run_matter`.
         let outcome: Result<(), Error> = async {
             let controller: ExternalController<_, 1> = ExternalController::new(
                 BleConnector::new(device, Default::default())
@@ -227,14 +233,12 @@ pub async fn run_matter(
                     Async(DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
                 );
 
-            // Flash-backed KV over the `nvs` partition (fabrics + Thread networks store).
-            // A fresh handle per run; sequential-storage is stateless between operations.
-            let kv = stack.matter().kv(FlashKv::new()?);
-
             // Non-concurrent (BLE-only until paired, then Thread-only) — NOT run_coex.
             // The H2's single 2.4 GHz radio can't run BLE + 802.15.4 reliably at once, so
             // `run` advertises SupportsConcurrentConnection=false and drops BLE once a
             // fabric exists; the deferred ConnectNetwork is replayed via OtNetCtl::connect.
+            // `&kv` (not `kv`): the KV is owned outside the loop (FlashKv is build-once) and
+            // shared by reference each run.
             stack
                 .run(
                     PreexistingWireless::new(
@@ -246,7 +250,7 @@ pub async fn run_matter(
                     ),
                     &crypto,
                     (NODE, handler),
-                    kv,
+                    &kv,
                     (),
                 )
                 .await
