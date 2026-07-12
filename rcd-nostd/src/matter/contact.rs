@@ -19,8 +19,10 @@ use rs_matter_stack::matter::with;
 
 use crate::link;
 
-/// EP2 endpoint id — must match the endpoint number used in the Node (`stack.rs`).
-pub const CONTACT_ENDPOINT_ID: u16 = 2;
+/// EP1 endpoint id — must match the endpoint number used in the Node (`stack.rs`).
+/// The contact sensor is intentionally the FIRST application endpoint so Apple Home
+/// makes it the primary accessory tile (see `matter_device_choices.md`).
+pub const CONTACT_ENDPOINT_ID: u16 = 1;
 
 /// The Boolean State cluster metadata for this handler (used in the Node's cluster list).
 pub const CONTACT_CLUSTER: Cluster<'static> =

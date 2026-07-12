@@ -45,8 +45,9 @@ use super::{OtGattPeripheral, OtMdns, OtNetCtl, OtNetStack, OtNetif};
 /// Tune up if init panics for lack of space. (light.rs uses 23500.)
 const BUMP_SIZE: usize = 23500;
 
-/// Endpoint 1 — On/Off Plug-In Unit (the RCD resetter). Endpoint 0 is the root.
-const PLUG_ENDPOINT_ID: u16 = 1;
+/// Endpoint 2 — On/Off Plug-In Unit (the RCD resetter). Endpoint 1 is the contact
+/// sensor (the primary tile — see `matter_device_choices.md`); endpoint 0 is the root.
+const PLUG_ENDPOINT_ID: u16 = 2;
 
 /// On/Off Plug-In Unit device type (Matter Device Library `0x010A`). Gives HomeKit a
 /// tappable outlet tile (vs the misleading lightbulb of On/Off Light). See
@@ -71,20 +72,23 @@ static QR_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
 
 /// The Matter node (matter_device_choices.md):
 ///   EP0 — Root Node (system clusters)
-///   EP1 — On/Off Plug-In Unit: the RCD resetter (tap → actuator reset cycle)
-///   EP2 — Contact Sensor: downstream mains presence (Boolean State)
+///   EP1 — Contact Sensor: downstream mains presence (Boolean State) — the PRIMARY tile
+///   EP2 — On/Off Plug-In Unit: the RCD resetter (tap → actuator reset cycle)
+///
+/// The contact sensor is listed first (and is the lowest application endpoint) so Apple
+/// Home makes it the primary accessory tile; the plug is the secondary tile.
 const NODE: Node = Node {
     endpoints: &[
         ThreadMatterStack::<0, ()>::root_endpoint(),
         Endpoint::new(
-            PLUG_ENDPOINT_ID,
-            devices!(DEV_TYPE_ON_OFF_PLUG_IN_UNIT),
-            clusters!(DescHandler::CLUSTER, RcdPlugHooks::CLUSTER),
-        ),
-        Endpoint::new(
             CONTACT_ENDPOINT_ID,
             devices!(DEV_TYPE_CONTACT_SENSOR),
             clusters!(DescHandler::CLUSTER, CONTACT_CLUSTER),
+        ),
+        Endpoint::new(
+            PLUG_ENDPOINT_ID,
+            devices!(DEV_TYPE_ON_OFF_PLUG_IN_UNIT),
+            clusters!(DescHandler::CLUSTER, RcdPlugHooks::CLUSTER),
         ),
     ],
 };
