@@ -33,10 +33,12 @@ with `openthread` (Thread netif/UDP/SRP) and `trouble` (BLE GATT peripheral).
 crypto feature subset differs from its prebuilt config. That needs, on PATH:
 - a **RISC-V-capable clang** — Apple's `/usr/bin/clang` has NO riscv32 target; use
   brew LLVM: `/opt/homebrew/opt/llvm/bin/clang` (+ `LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib`).
-- **cmake 3.x** — ⚠️ **cmake 4.x breaks it**: it injects `-arch` (a macOS host flag)
-  into the cross-compile even with `CMAKE_SYSTEM_NAME=Generic`, and clang rejects
-  `-arch` for riscv (`unsupported option '-arch' for target 'riscv32'`). We pin the
-  esp-idf-bundled **cmake 3.30.2**.
+- **cmake** — the system one is fine (3.x or **≥ 4.4**). The mbedtls toolchain file sets
+  `CMAKE_SYSTEM_NAME=Generic` so cmake must not add the macOS host `-arch` flag (clang
+  rejects `-arch` for riscv: `unsupported option '-arch' for target 'riscv32'`). ⚠️ Early
+  cmake **4.x (4.0–4.3)** had a regression that leaked `-arch` despite `Generic`; that was
+  fixed by **4.4**. (We previously pinned the esp-idf-bundled cmake 3.30.2 to dodge it —
+  no longer necessary; `build.sh` just warns if it sees a 4.0–4.3.)
 
 **Just use the wrapper** — `./build.sh` sets all of the above:
 ```sh

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Build/flash wrapper. The mbedtls-rs-sys riscv C build needs, on PATH:
 #  - a RISC-V-capable clang — brew LLVM; Apple's /usr/bin/clang has NO riscv32 target.
-#  - cmake 3.x — cmake 4.x injects `-arch` (a macOS host flag) into the cross-compile
-#    even with CMAKE_SYSTEM_NAME=Generic, and clang rejects it for riscv. We ship the
-#    cmake 3.30.2 that was bundled with the (now-removed) esp-idf toolchain under
-#    ./tools/cmake/ (gitignored, machine-local); it takes precedence over system cmake.
+#  - a working cmake — the system one is fine. mbedtls-rs-sys cross-builds mbedtls with
+#    a toolchain file that sets CMAKE_SYSTEM_NAME=Generic, so cmake must NOT add the macOS
+#    host `-arch` flag (clang rejects `-arch` for riscv). cmake 3.x and 4.4+ honor Generic
+#    correctly; a regression in early cmake 4.x (4.0–4.3) leaked `-arch` anyway — the guard
+#    below warns for that range. (We used to pin the esp-idf-bundled cmake 3.30.2; no longer
+#    needed once the system cmake is 4.4+.)
 #  - LIBCLANG_PATH for bindgen.
 # See docs/no-std-plan.md.
 #
@@ -30,14 +32,18 @@ fi
 export ESP_LOG="${ESP_LOG:-info}"
 echo "build.sh: ESP_LOG=$ESP_LOG (compile-time log level)" >&2
 
-# Resolve relative to this script so it works regardless of the caller's CWD.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CMAKE_3X="$SCRIPT_DIR/tools/cmake/3.30.2/CMake.app/Contents/bin"
-if [ -d "$CMAKE_3X" ]; then
-  export PATH="$CMAKE_3X:$PATH"
+# Warn if the system cmake is in the known-bad early-4.x range (leaks a macOS `-arch`
+# flag into the riscv cross-build despite CMAKE_SYSTEM_NAME=Generic → mbedtls fails).
+# cmake 3.x and >= 4.4 are fine.
+if cmake_ver="$(command cmake --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"; then
+  cmake_maj="${cmake_ver%%.*}"; cmake_min="$(printf '%s' "$cmake_ver" | cut -d. -f2)"
+  if [ "$cmake_maj" = "4" ] && [ "$cmake_min" -lt 4 ] 2>/dev/null; then
+    echo "build.sh: WARNING: cmake $cmake_ver — early 4.x (4.0–4.3) leaks a macOS -arch flag into the riscv mbedtls build. Use cmake >= 4.4 (or 3.x)." >&2
+  fi
 else
-  echo "build.sh: WARNING: bundled cmake 3.x not found at $CMAKE_3X — falling back to system cmake (4.x breaks the riscv mbedtls build)." >&2
+  echo "build.sh: WARNING: cmake not found on PATH." >&2
 fi
+
 export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 export LIBCLANG_PATH="/opt/homebrew/opt/llvm/lib"
 
