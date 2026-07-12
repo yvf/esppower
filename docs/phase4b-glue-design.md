@@ -49,21 +49,18 @@ e.g. `rs_matter_stack::matter::utils::sync::...` / `CriticalSectionRawMutex`.
    Watch the GAT lifetimes (`type UdpBind<'a>`).
 
 2. **Netif** = `NetifDiag` + `NetChangeNotif` (`dm::clusters::gen_diag` +
-   `dm::networks`). Template: esp-idf-matter `netif.rs:29-90`. `netifs()` builds a
-   `NetifInfo` from `ot.ipv6_addrs(..)` + `ot.net_status()` (interface type =
-   `Thread`); `wait_changed()` = `ot.wait_changed().await`.
+   `dm::networks`). `netifs()` builds a `NetifInfo` from `ot.ipv6_addrs(..)` +
+   `ot.net_status()` (interface type = `Thread`); `wait_changed()` =
+   `ot.wait_changed().await`.
 
 3. **Mdns** (`rs_matter_stack::mdns::...`/`dm`) — register the Matter operational
    + commissionable services over openthread **SRP** (`ot.srp_set_conf` +
-   `ot.srp_add_service`, see `openthread/examples/.../srp.rs`). Template:
-   esp-idf-matter `thread.rs` `EspMatterThreadSrp` (Mdns impl ~line 605).
+   `ot.srp_add_service`, see `openthread/examples/.../srp.rs`).
 
 4. **NetCtl** + **ThreadDiag** (`dm::clusters::net_comm` + `thread_diag`) — the
    critical one. `NetCtl`: apply the dataset the commissioner provides
    (`ot.set_active_dataset_tlv` + `ot.enable_thread(true)`), report scan/connect.
    `ThreadDiag`: report role/pan-id/channel from `ot.net_status()`/`ot.netdata`.
-   Template: esp-idf-matter `thread.rs` `EspMatterThreadCtl` (NetCtl ~94,
-   ThreadDiag ~307).
 
 5. **GattPeripheral** (`rs_matter_stack::ble::GattPeripheral`) — **the hardest;
    not yet implemented.** It owns the whole BLE stack lifecycle (trouble Host +
@@ -103,20 +100,17 @@ e.g. `rs_matter_stack::matter::utils::sync::...` / `CriticalSectionRawMutex`.
    exact length (if so, use trouble's variable-length value path). This is the
    main thing to validate with a real commissioner.
 
-   Template: esp-idf-matter `ble.rs` `EspBtpGattPeripheral` — `run` spawns
-   advertise + `select(process_incoming, process_outgoing)`; the two pump loops
-   (the Btp-driving logic) port directly; only the GATT-server half changes to
-   trouble.
+   Shape: `run` advertises the BTP service then `select`s the trouble runner, the
+   incoming pump (`process_incoming`), and the outgoing pump (`process_outgoing`).
 
 ## Run loop (after adapters compile)
 
 `ThreadMatterStack::<BUMP, ()>` in a `StaticCell` (mind RAM — we have lots now);
 `stack.run_coex(PreexistingWireless::new(...), &crypto, (NODE, handler), &kv, ())`.
-`run_coex` auto-prints the commissioning QR + pairing code. Device model + handler
-= the On/Off plug ported from the esp-idf `PlugHooks` (Phase 5).
+Device model + handler = the On/Off plug (RCD resetter) + the contact sensor
+(mains presence). (The shipping firmware uses non-concurrent `run`, not `run_coex`
+— see `no-std-plan.md`.)
 
 ## Build
 
-`./build.sh` (cmake 3.x + brew-LLVM clang pinned). Keep the crate green: develop
-the `matter` module and only `mod matter;` it once it compiles; wire `run_coex`
-into `main` last.
+`./build.sh` — see `no-std-plan.md` for the host prerequisites (brew-LLVM clang, cmake).

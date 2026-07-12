@@ -1,9 +1,16 @@
-# no-std Matter-over-Thread rewrite — stack & plan (ESP32-H2)
+# no-std Matter-over-Thread firmware (ESP32-H2) — architecture & build
 
-Replaces the esp-idf+Bluedroid attempt, which hit a hard RAM wall on the H2's
-320 KB SRAM (that attempt is archived — git tag `esp-idf-attempt-final` / branch
-`vibe-code-1`; see its `docs/esp-idf-bluedroid-attempt.md`). Going bare-metal removes
-the FreeRTOS/Bluedroid overhead so most of the SRAM is heap.
+## Why no-std (rather than ESP-IDF)
+
+The conventional path for Matter-over-Thread on Espressif is ESP-IDF: the Bluedroid BLE
+stack + OpenThread + rs-matter, glued by esp-idf-matter. On the ESP32-H2 that ran into a
+hard memory wall — with only **320 KB SRAM**, bringing up Bluedroid + OpenThread +
+rs-matter together drove the heap to nearly zero, and the Matter UDP network task failed
+to spawn (out of memory). Bluedroid could not be trimmed enough to recover the headroom.
+
+This firmware is bare-metal `no_std` instead. Removing the FreeRTOS/Bluedroid overhead
+frees most of the 320 KB for the heap, which is enough to run commissioning and
+operation comfortably. (esp-alloc places the heap in the SRAM left over after statics.)
 
 ## The stack (all no-std, target `riscv32imac-unknown-none-elf`, nightly)
 
@@ -11,20 +18,23 @@ the FreeRTOS/Bluedroid overhead so most of the SRAM is heap.
 |------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
 | HAL / chip | **esp-hal 1.1** (`esp32h2`, `unstable`)                                             | peripherals, ADC, LEDC, GPIO                                                                                           |
 | RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy 0.10/0.8/0.5                     | scheduler + radio glue                                                                                                 |
-| Heap       | **esp-alloc 0.10**                                                                  | the win: allocate most of 320 KB as heap                                                                               |
+| Heap       | **esp-alloc 0.10**                                                                  | most of the 320 KB SRAM becomes heap                                                                                  |
 | Radio      | **esp-radio 0.18** (`ieee802154` + BLE) — **vendored** (`vendor/esp-radio`)          | one crate, both radios + coex. Vendored to patch ESP32-H2 802.15.4 RX bugs (see `docs/upstream-prs/`); `[patch.crates-io]`.  |
 | Thread     | **openthread** (esp-rs/openthread): `esp-radio`,`udp`,`srp`,`dns-client`,`edge-nal` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; provides edge-nal UDP + SRP (Matter's mDNS-over-Thread) |
 | BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned, see below                                                                                 |
 | Matter     | **rs-matter** (`no_std`) + **rs-matter-stack**                                      | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
-| Boot       | esp-bootloader-esp-idf 0.5, esp-backtrace/println                                   |                                                                                                                        |
+| Boot       | esp-bootloader-esp-idf 0.5, esp-backtrace/println                                   | (`esp-bootloader-esp-idf` = the IDF partition-table/app-descriptor format, not the IDF runtime)                       |
 
-## The integration we must write (no off-the-shelf glue exists)
+## The transport layer (custom glue)
 
-esp-idf-matter implemented rs-matter-stack's `ThreadCoex` + `Gatt` traits using
-ESP-IDF. For no-std there is **no equivalent** — the openthread/trouble examples
-are Thread-only / BLE-only, and rs-matter-stack's examples are std/Linux. So the
-core new work is a ~few-hundred-line transport layer implementing those traits
-with `openthread` (Thread netif/UDP/SRP) and `trouble` (BLE GATT peripheral).
+rs-matter-stack is generic over its network and BLE transports but ships no no-std ESP
+implementation — the openthread/trouble examples are Thread-only / BLE-only, and
+rs-matter-stack's own examples are std/Linux. So the core custom code (`src/matter/`) is
+a transport layer implementing rs-matter-stack's `NetStack` / `Netif` / `NetCtl` / `Mdns`
+/ `GattPeripheral` traits over **openthread** (Thread netif/UDP/SRP) and **trouble** (BLE
+GATT peripheral). The device joins Thread *during* commissioning: the commissioner sends
+the operational dataset via the NetworkCommissioning cluster, and `OtNetCtl` applies it
+to openthread. See `docs/phase4b-glue-design.md` for the adapter/BTP design detail.
 
 ## Build prerequisites (host)
 
@@ -37,8 +47,7 @@ crypto feature subset differs from its prebuilt config. That needs, on PATH:
   `CMAKE_SYSTEM_NAME=Generic` so cmake must not add the macOS host `-arch` flag (clang
   rejects `-arch` for riscv: `unsupported option '-arch' for target 'riscv32'`). ⚠️ Early
   cmake **4.x (4.0–4.3)** had a regression that leaked `-arch` despite `Generic`; that was
-  fixed by **4.4**. (We previously pinned the esp-idf-bundled cmake 3.30.2 to dodge it —
-  no longer necessary; `build.sh` just warns if it sees a 4.0–4.3.)
+  fixed by **4.4**. `build.sh` warns if it sees a 4.0–4.3.
 
 **Just use the wrapper** — `./build.sh` sets all of the above:
 ```sh
@@ -50,58 +59,44 @@ crypto feature subset differs from its prebuilt config. That needs, on PATH:
 > cache (compiler-test failures). `cargo clean -p mbedtls-rs-sys -p openthread-sys`
 > then rebuild.
 
-## Phases
+## Key implementation decisions & constraints
 
-> **Status (2026-07-05): all phases complete.** The device commissions over BLE in
-> Apple Home, operates over Thread, drives the actuator + reports the contact sensor
-> bidirectionally, and persists its pairing across reboots. Two things beyond the
-> original plan proved necessary: (a) **vendoring esp-radio** to fix ESP32-H2 802.15.4
-> RX (`docs/upstream-prs/`), and (b) switching from `run_coex` to **non-concurrent
-> `run`** (BLE only while un-commissioned, Thread-only once paired) — the H2's single
-> shared radio can't run BLE + Thread reliably at once. Persistence (Matter fabric +
-> OpenThread SRP key) is flash-backed (`src/matter/kv.rs`, `ot_settings.rs`); flash
-> writes are kept off the radio hot path (deferred / whitelisted) to avoid starving
-> 802.15.4 during SRP registration.
+**Commissioning is non-concurrent, not coex.** The H2 has a single 2.4 GHz radio shared
+between BLE and 802.15.4; running both simultaneously is unreliable. The stack therefore
+uses rs-matter-stack's non-concurrent `run` (which advertises
+`SupportsConcurrentConnection = false`): BLE only while un-commissioned, then Thread-only
+once a fabric exists. `PreexistingWireless` implements both `Thread`+`Gatt` and
+`ThreadCoex`, so it is the same adapters either way — just different orchestration. See
+`src/matter/stack.rs`.
 
-1. **[DONE] Skeleton** — esp-hal+esp-rtos+esp-radio+embassy+heap boot. Builds in ~27 s.
-2. **[DONE — builds] Thread up** — openthread `srp`-style: radio (`EspRadio`/
-   `Ieee802154`), `OpenThread::new_with_udp_srp`, join via `THREAD_DATASET`, log
-   role/addrs/heap. Compiles+links (prebuilt OT lib + built mbedtls). Next: flash
-   and confirm it attaches to a real border router.
-3. **[DONE — builds] BLE up + Thread coex** — trouble-host BLE peripheral
-   (advertise + placeholder GATT) running concurrently with the Thread node on the
-   shared radio. Compiles. Next: flash + confirm it advertises while Thread runs.
+**Vendored esp-radio for H2 802.15.4 RX.** esp-radio 0.18's 802.15.4 receive path is
+broken on the ESP32-H2 (unicast frames are never delivered, so OpenThread can never
+attach). `vendor/esp-radio` carries the minimal RX-correctness fixes via
+`[patch.crates-io]`; the diffs and upstreamable write-ups are in `docs/upstream-prs/`.
 
-   **Critical version matrix (don't drift):** openthread pins **esp-radio 0.18 →
-   bt-hci 0.8.1**, so BLE must use **trouble-host 0.6** (also bt-hci 0.8.1) — trouble
-   `main`/0.7 needs bt-hci 0.9 and won't typecheck against `BleConnector`. trouble 0.6
-   uses **embassy-sync 0.7**, so this crate's *direct* `embassy-sync` dep is pinned to
-   **0.7** (trouble's `#[gatt_server]` macro resolves a bare `embassy_sync` path
-   against our deps). openthread/rs-matter pull **embassy-sync 0.8** transitively; the
-   two coexist as long as we never pass one version's mutex where the other is
-   expected. esp-radio features need **both** `ieee802154` and `ble`.
-4. **Matter** — (a) **[DONE — deps build]** add rs-matter-stack (`alloc`,`rustcrypto`)
-   + rs-matter via `[patch.crates-io]` (sysgrok `next`). The full graph
-   (esp-hal+esp-radio+openthread+trouble+rs-matter) compiles for H2.
+**Persistence kept off the radio hot path.** The Matter fabric and the OpenThread SRP key
+are flash-backed (`src/matter/kv.rs`, `src/matter/ot_settings.rs`) so pairing survives
+reboots and a commissioned device comes straight back up over Thread (no BLE). esp-storage
+flash writes run with interrupts off (~15 ms/sector), which would starve 802.15.4 during
+SRP registration, so writes are deferred / whitelisted to land in radio lulls.
 
-   **Crypto-version conflict (resolved):** esp-radio's 802.15.4 `ccm 0.4.4` pins
-   `subtle = "=2.4"` exactly, vs rs-matter's `subtle ^2.6`. Fix: **vendored `ccm`
-   under `vendor/ccm`** with the pin relaxed to `^2.4` (`[patch.crates-io] ccm`),
-   plus a direct `subtle = "2.6"` dep to force unification to 2.6.1 (API-compatible
-   for ccm's constant-time tag compare). Both `ccm 0.4.4` (esp-radio) and `ccm 0.5`
-   (rs-matter) then coexist on one `subtle`.
+**BLE version matrix (don't drift).** openthread pins **esp-radio 0.18 → bt-hci 0.8.1**,
+so BLE must use **trouble-host 0.6** (also bt-hci 0.8.1); trouble `main`/0.7 needs bt-hci
+0.9 and won't typecheck against `BleConnector`. trouble 0.6 uses **embassy-sync 0.7**, so
+this crate's *direct* `embassy-sync` dep is pinned to **0.7** (trouble's `#[gatt_server]`
+macro resolves a bare `embassy_sync` path against our deps). openthread/rs-matter pull
+**embassy-sync 0.8** transitively; the two coexist as long as one version's mutex is never
+passed where the other is expected. esp-radio needs both `ieee802154` and `ble` features.
 
-   (b) **[NEXT]** implement rs-matter-stack `ThreadCoex` + `GattPeripheral` over
-   (2)+(3); run the rs-matter-stack loop; print the commissioning QR.
-5. **Device model** — port the On/Off plug (`PlugHooks`) + controller state machine
-   from the esp-idf version (logic is reusable; it's no_std-friendly already).
-6. **Peripherals** — re-implement the EMF ADC sensor (esp-hal `adc`) and the
-   actuator LEDC servo (esp-hal `ledc`) — the detection/timing constants port as-is.
-7. **Commission + iterate** — flash, pair in Home, watch free heap (should be far
-   healthier than the ~0 we hit under esp-idf).
+**Crypto version conflict (resolved).** esp-radio's 802.15.4 `ccm 0.4.4` pins `subtle
+"=2.4"` exactly, vs rs-matter's `subtle ^2.6`. `vendor/ccm` relaxes the pin to `^2.4`
+(`[patch.crates-io] ccm`), plus a direct `subtle = "2.6"` dep forces unification to 2.6.1
+(API-compatible for ccm's constant-time tag compare). `ccm 0.4.4` (esp-radio) and `ccm
+0.5` (rs-matter) then coexist on one `subtle`.
 
-## Reusable from the esp-idf version (archived: tag `esp-idf-attempt-final`)
+## Device credentials (bring-up)
 
-Pure-logic, no_std-friendly, copy nearly verbatim: the EMF/CT detection functions
-(`peak_to_peak`, thresholds), the controller state machine, config constants, and
-the `PlugHooks` On/Off→trigger intent. Only the HAL-touching init changes.
+The firmware uses rs-matter's **TEST** device credentials (VID 0xFFF1). chip-tool and
+Home Assistant accept these; **Apple Home requires a real DAC** (it rejects the CHIP test
+PAA root), which needs CSA membership + a certified VID. The Active Operational Dataset
+(Thread network key) is supplied at build time via env, never committed.

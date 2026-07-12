@@ -106,11 +106,10 @@ The analog front end works fine; only the *interface* was wrong. Reading `N_out`
 
 ## 🦀 Firmware integration (this project)
 
-GPIO4 is read as **ADC1 channel 3** using `esp-idf-hal`'s one-shot ADC, sampled fast enough to capture the 50 Hz waveform, then reduced to a peak-to-peak swing and thresholded. The detection logic is identical in shape to the CT backend.
+GPIO4 is read as **ADC1 channel 3** using the ESP32-H2's one-shot ADC, sampled fast enough to capture the 50 Hz waveform, then reduced to a peak-to-peak swing and thresholded. The detection logic is identical in shape to the CT backend. (This was the early local-sensor concept; the shipped design is the remote front end in [`220AC_EMF_Remote_detector.md`](220AC_EMF_Remote_detector.md).)
 
-* Implementation: `src/sensor/emf.rs` in the archived esp-idf attempt (git tag `esp-idf-attempt-final`; the current no-std sensor lives at [`src/sensor.rs`](../src/sensor.rs))
-* Tunable constants: `src/config.rs` in that archived attempt (current: [`src/config.rs`](../src/config.rs))
-* On-device check: `cargo run --example hw_emf --release`
+* Implementation: [`src/sensor.rs`](../src/sensor.rs)
+* Tunable constants: [`src/config.rs`](../src/config.rs)
 
 ### Sampling & detection parameters (`config.rs`)
 

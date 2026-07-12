@@ -2,7 +2,6 @@
 //!
 //! Reports the single Thread interface (addresses from `ot.ipv6_addrs`,
 //! operational once attached) and wakes on `ot.wait_changed()`.
-//! Template: esp-idf-matter `netif.rs` (EspMatterNetif).
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 

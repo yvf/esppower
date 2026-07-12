@@ -1,6 +1,6 @@
-//! Compile-time configuration for the RCD controller's power-monitor / auto-reset
-//! loop. Ported from the esp-idf attempt (archived, git tag `esp-idf-attempt-final`), adapted for esp-hal
-//! (LEDC duty is expressed as an integer percentage rather than a raw 14-bit count).
+//! Compile-time configuration for the RCD controller's power-monitor / auto-reset loop:
+//! pin references, actuator RC-servo timing, reset-trigger timing, and EMF-sensor
+//! parameters. (LEDC duty is expressed as an integer percentage, not a raw 14-bit count.)
 
 // ─── Pin assignments (reference only — the HAL consumes the peripheral singletons) ──
 
@@ -28,7 +28,7 @@ pub const SERVO_FREQ_HZ: u32 = 50;
 pub const SERVO_TIMER_RESOLUTION_BITS: u8 = 14;
 
 /// Duty for the fully-retracted position: 1 ms pulse at 50 Hz = 5 % duty.
-/// (At 14-bit this is 16384 × 5 % ≈ 819, matching the esp-idf build's raw value.)
+/// (At 14-bit resolution this is 16384 × 5 % ≈ 819 raw counts.)
 pub const SERVO_DUTY_RETRACTED_PCT: u8 = 5;
 
 /// Duty for the fully-extended position: 2 ms pulse at 50 Hz = 10 % duty.

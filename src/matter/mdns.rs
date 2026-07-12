@@ -1,7 +1,6 @@
 //! `Mdns` adapter over openthread **SRP** (Matter-over-Thread registers services
 //! with the border router's SRP server, which advertises them on the infra link;
-//! Matter's UDP mDNS responder isn't used). Port of esp-idf-matter's
-//! `EspMatterThreadSrp`, swapping the esp-idf SRP calls for openthread's.
+//! Matter's UDP mDNS responder isn't used).
 
 use core::fmt::Write as _;
 

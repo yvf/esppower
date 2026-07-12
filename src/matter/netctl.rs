@@ -4,7 +4,6 @@
 //! During Matter commissioning the commissioner sends the Thread operational
 //! dataset (AddOrUpdateThreadNetwork) and then ConnectNetwork → `connect()`,
 //! where we apply the dataset to openthread and wait until the node attaches.
-//! Template: esp-idf-matter `EspMatterThreadCtl`.
 
 use embassy_time::{Duration, Instant, Timer};
 

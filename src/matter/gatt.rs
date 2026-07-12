@@ -4,8 +4,6 @@
 //! BTP service (0xFFF6), and on each connection runs two pumps —
 //!  - **incoming**: GATT writes to C1 → `Btp::process_incoming`,
 //!  - **outgoing**: `Btp::process_outgoing` → C2 indications.
-//! Template: esp-idf-matter `ble.rs` (EspBtpGattPeripheral) for the pump shape;
-//! the GATT-server half is trouble (reused from the Phase-3 BLE code).
 
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
