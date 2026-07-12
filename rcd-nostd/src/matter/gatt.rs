@@ -65,6 +65,20 @@ impl<C: Controller> OtGattPeripheral<C> {
             address,
         }
     }
+
+    /// Construct WITHOUT a BLE controller, for the operational (already-commissioned)
+    /// path where the non-concurrent stack skips `run()` (BLE commissioning). No BLE
+    /// stack is initialized, so no BLE controller task is spun up — important on a
+    /// stack restart, where re-initializing BLE every time leaks the controller's
+    /// (heap-allocated) task stack and eventually exhausts memory. If `run()` were ever
+    /// called on such an instance (it is not, while commissioned) it fails cleanly with
+    /// `InvalidData` rather than advertising.
+    pub const fn without_controller(address: [u8; 6]) -> Self {
+        Self {
+            controller: None,
+            address,
+        }
+    }
 }
 
 impl<C: Controller> GattPeripheral for OtGattPeripheral<C> {

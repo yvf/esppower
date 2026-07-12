@@ -194,25 +194,32 @@ pub async fn run_matter(
     // value are rebuilt per iteration.
     let mut bt = Some(bt);
     loop {
-        // Fresh BLE controller each run: `stack.run()` owns and drops the wireless bundle
-        // (and thus the controller) when its future ends — `BleConnector`'s Drop de-inits
-        // BLE. Use the real peripheral the first time; on a restart the previous connector
-        // has already been dropped, so re-acquiring `BT` via `steal()` cannot alias a live
-        // one. (In operational mode BLE is never brought up, but the type still needs a
-        // `GattPeripheral`.)
-        let device = bt
-            .take()
-            .unwrap_or_else(|| unsafe { esp_hal::peripherals::BT::steal() });
-
-        // Rebuild what `run()` takes by value and can't be shared: the BLE controller and
-        // the handler chain. (The KV is build-once and shared by reference; `stack`,
-        // `crypto`, `plug`/`contact` live outside the loop.) Wrapped in an async block so a
-        // setup failure is caught by the loop below rather than escaping `run_matter`.
+        // Rebuild what `run()` takes by value and can't be shared: the GATT peripheral
+        // (BLE) and the handler chain. (The KV is build-once and shared by reference;
+        // `stack`, `crypto`, `plug`/`contact` live outside the loop.) Wrapped in an async
+        // block so a setup failure is caught by the loop below rather than escaping.
         let outcome: Result<(), Error> = async {
-            let controller: ExternalController<_, 1> = ExternalController::new(
-                BleConnector::new(device, Default::default())
-                    .map_err(|_| Error::from(ErrorCode::NoNetworkInterface))?,
-            );
+            // Only initialize BLE when a commissioning window is actually needed. Once
+            // commissioned, the non-concurrent stack never calls Gatt::run, so building a
+            // controller would just spin up an unused BLE task — and each `BleConnector`
+            // re-init on a restart LEAKS that task's heap-allocated stack (eventually OOM,
+            // as an error-injection test showed). So: a real controller only while
+            // un-commissioned; otherwise none (BLE stays fully off).
+            let gatt = if stack.matter().is_commissioned() {
+                OtGattPeripheral::without_controller(addr)
+            } else {
+                // Real peripheral the first time; on a (rare) commissioning-phase restart
+                // the previous connector was already dropped, so `steal()` can't alias a
+                // live one.
+                let device = bt
+                    .take()
+                    .unwrap_or_else(|| unsafe { esp_hal::peripherals::BT::steal() });
+                let controller: ExternalController<_, 1> = ExternalController::new(
+                    BleConnector::new(device, Default::default())
+                        .map_err(|_| Error::from(ErrorCode::NoNetworkInterface))?,
+                );
+                OtGattPeripheral::new(controller, addr)
+            };
 
             let mut rand = crypto.weak_rand()?;
             let handler = EmptyHandler
@@ -246,7 +253,7 @@ pub async fn run_matter(
                         OtNetif::new(ot.clone(), eui64),
                         OtNetCtl::new(ot.clone()),
                         OtMdns::new(ot.clone(), eui64),
-                        OtGattPeripheral::new(controller, addr),
+                        gatt,
                     ),
                     &crypto,
                     (NODE, handler),
