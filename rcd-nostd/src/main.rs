@@ -20,9 +20,6 @@ use log::warn;
 
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
-// BLE bring-up only happens on the Matter path (needs esp-radio/ble via `matter-ble`).
-#[cfg(feature = "matter-ble")]
-use esp_radio::ble::controller::BleConnector;
 use esp_radio::ieee802154::Ieee802154;
 
 use openthread::esp::EspRadio;
@@ -31,9 +28,6 @@ use openthread::{OpenThread, OtResources, OtSrpResources, OtUdpResources};
 // flash via `matter::FlashSettings` (so the SRP key survives reboots).
 #[cfg(not(feature = "matter-ble"))]
 use openthread::SimpleRamSettings;
-
-#[cfg(feature = "matter-ble")]
-use trouble_host::prelude::ExternalController;
 
 use esp_backtrace as _;
 use esp_println as _;
@@ -173,13 +167,13 @@ async fn main(spawner: Spawner) {
         // wipes the saved Matter/Thread pairing and reboots into BLE commissioning.
         spawner.spawn(run_reset_button(peripherals.GPIO5).unwrap());
 
-        // ── BLE ─────────────────────────────────────────────────────────────────
-        let connector = BleConnector::new(peripherals.BT, Default::default()).unwrap();
-        let controller: ExternalController<_, 1> = ExternalController::new(connector);
-
+        // Hand the BLE peripheral to `run_matter`: it (re)builds the BLE controller
+        // internally so it can supervise and restart the Matter stack on an unforeseen
+        // error (see its supervised run loop). This call returns only if the one-time
+        // pre-loop init fails; the run loop itself never returns.
         info!("Starting Matter (commission over BLE, operate over Thread)…");
-        if let Err(e) = matter::run_matter(ot, controller, ieee_eui64, Rng::new()).await {
-            warn!("Matter stack exited: {e:?}");
+        if let Err(e) = matter::run_matter(ot, peripherals.BT, ieee_eui64, Rng::new()).await {
+            warn!("Matter failed to initialize (before the supervised run loop): {e:?}");
         }
     }
 }
