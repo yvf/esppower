@@ -410,6 +410,7 @@ dependencies = [
 [[package]]
 name = "ccm"
 version = "0.4.4"
+source = "git+https://github.com/yvf/AEADs?rev=790a0a5d397afc907d80c513013d1b13f90ccab9#790a0a5d397afc907d80c513013d1b13f90ccab9"
 dependencies = [
  "aead 0.4.3",
  "cipher 0.3.0",
@@ -1464,6 +1465,7 @@ dependencies = [
 [[package]]
 name = "esp-radio"
 version = "0.18.0"
+source = "git+https://github.com/yvf/esp-hal?rev=4b0e83234de83bf5fda9f2471bb12c9b2497d74b#4b0e83234de83bf5fda9f2471bb12c9b2497d74b"
 dependencies = [
  "allocator-api2",
  "bt-hci",

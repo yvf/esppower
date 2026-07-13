@@ -19,7 +19,7 @@ operation comfortably. (esp-alloc places the heap in the SRAM left over after st
 | HAL / chip | **esp-hal 1.1** (`esp32h2`, `unstable`)                                             | peripherals, ADC, LEDC, GPIO                                                                                           |
 | RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy 0.10/0.8/0.5                     | scheduler + radio glue                                                                                                 |
 | Heap       | **esp-alloc 0.10**                                                                  | most of the 320 KB SRAM becomes heap                                                                                  |
-| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) — **vendored** (`vendor/esp-radio`)          | one crate, both radios + coex. Vendored to patch ESP32-H2 802.15.4 RX bugs (see `docs/upstream-prs/`); `[patch.crates-io]`.  |
+| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) — **patched** (fork branch)                 | one crate, both radios + coex. `[patch.crates-io]` to a fork branch that fixes ESP32-H2 802.15.4 RX bugs (see `docs/upstream-prs/`).  |
 | Thread     | **openthread** (esp-rs/openthread): `esp-radio`,`udp`,`srp`,`dns-client`,`edge-nal` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; provides edge-nal UDP + SRP (Matter's mDNS-over-Thread) |
 | BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned, see below                                                                                 |
 | Matter     | **rs-matter** (`no_std`) + **rs-matter-stack**                                      | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
@@ -69,10 +69,13 @@ once a fabric exists. `PreexistingWireless` implements both `Thread`+`Gatt` and
 `ThreadCoex`, so it is the same adapters either way — just different orchestration. See
 `src/matter/stack.rs`.
 
-**Vendored esp-radio for H2 802.15.4 RX.** esp-radio 0.18's 802.15.4 receive path is
-broken on the ESP32-H2 (unicast frames are never delivered, so OpenThread can never
-attach). `vendor/esp-radio` carries the minimal RX-correctness fixes via
-`[patch.crates-io]`; the diffs and upstreamable write-ups are in `docs/upstream-prs/`.
+**Patched esp-radio for H2 802.15.4 RX.** esp-radio 0.18's 802.15.4 receive path is
+broken on the ESP32-H2 (the ext-address filter is byte-reversed and the RX ISR never
+re-arms / never delivers, so OpenThread can never attach). `[patch.crates-io]` points
+esp-radio at a fork branch (`yvf/esp-hal` @ `rcd/esp-radio-0.18-h2-154-fixes`) — the
+published 0.18.0 crate plus those RX-correctness fixes — instead of a vendored source
+tree. The clean, upstreamable form of the same fixes (against current `main`/beta.0) is
+on the fork's `fix/*` branches; the diffs and PR write-ups are in `docs/upstream-prs/`.
 
 **Persistence kept off the radio hot path.** The Matter fabric and the OpenThread SRP key
 are flash-backed (`src/matter/kv.rs`, `src/matter/ot_settings.rs`) so pairing survives
@@ -88,11 +91,15 @@ macro resolves a bare `embassy_sync` path against our deps). openthread/rs-matte
 **embassy-sync 0.8** transitively; the two coexist as long as one version's mutex is never
 passed where the other is expected. esp-radio needs both `ieee802154` and `ble` features.
 
-**Crypto version conflict (resolved).** esp-radio's 802.15.4 `ccm 0.4.4` pins `subtle
-"=2.4"` exactly, vs rs-matter's `subtle ^2.6`. `vendor/ccm` relaxes the pin to `^2.4`
-(`[patch.crates-io] ccm`), plus a direct `subtle = "2.6"` dep forces unification to 2.6.1
-(API-compatible for ccm's constant-time tag compare). `ccm 0.4.4` (esp-radio) and `ccm
-0.5` (rs-matter) then coexist on one `subtle`.
+**Crypto version conflict (resolved).** `ccm 0.4.4` (pulled by `ieee802154 0.6.1` →
+esp-radio's 802.15.4 AES-CCM) pins `subtle "=2.4"` exactly, vs rs-matter's `subtle ^2.6`.
+No public `ccm 0.4.x` relaxes that pin (0.5.0+ do — with `subtle = "2"` — but are
+semver-incompatible with `ieee802154`'s `^0.4.0`), so `[patch.crates-io] ccm` points at a
+one-line branch of the `yvf/AEADs` fork that relaxes it to `subtle = "2"` (the same value
+ccm 0.5.0 uses; API-compatible for ccm's constant-time tag compare). A direct
+`subtle = "2.6"` dep forces unification to 2.6.1, so `ccm 0.4.4` (esp-radio) and `ccm 0.5`
+(rs-matter) coexist on one `subtle`. (Previously this was a `vendor/ccm` path copy; the
+fork branch removes the in-repo source tree — the branch is the only change.)
 
 ## Device credentials (bring-up)
 

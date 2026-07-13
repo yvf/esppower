@@ -32,7 +32,7 @@ esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"
 # diagnostic can build without it (`--no-default-features`) to isolate 802.15.4.
 # `log-04` routes esp-radio's internal logging (info!/warn!/trace!) to the `log` crate
 # (esp-println) — otherwise those macros are no-ops. Needed to see the 802.15.4 driver's
-# own diagnostics (e.g. the vendored RX-interrupt debug).
+# own diagnostics (e.g. the patched 802.15.4 RX-interrupt debug).
 esp-radio     = { version = "0.18", features = ["esp32h2", "unstable", "ieee802154", "log-04"] }
 esp-alloc     = { version = "0.10" }
 esp-backtrace = { version = "0.19", features = ["esp32h2", "panic-handler", "println"] }
@@ -69,7 +69,8 @@ rand_core      = "0.9"
 # glue can shim one over esp-hal's (0.9) Rng. See src/matter/stack.rs.
 rand_core_06   = { package = "rand_core", version = "0.6", default-features = false }
 # Force subtle ≥2.6 so it unifies across rs-matter (needs 2.6) and esp-radio's
-# 802.15.4 ccm (vendored, pin relaxed). Direct dep makes it survive `cargo update`.
+# 802.15.4 ccm (patched fork, pin relaxed — see [patch.crates-io]). Direct dep
+# makes it survive `cargo update`.
 subtle         = { version = "2.6", default-features = false }
 
 # Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf — no C build).
@@ -104,16 +105,18 @@ rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch =
 [patch.crates-io]
 rs-matter       = { git = "https://github.com/sysgrok/rs-matter",       branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
-# ccm 0.4.4 (esp-radio's 802.15.4 AES-CCM) pins `subtle = "=2.4"` exactly, which
-# collides with rs-matter's `subtle ^2.6`. Vendored with the pin relaxed to ^2.4
-# (subtle 2.4→2.6 is API-compatible for ccm's constant-time tag compare) so subtle
-# unifies to 2.6.1. See docs/no-std-plan.md.
-ccm             = { path = "vendor/ccm" }
-# esp-radio 0.18.0 vendored to patch its ESP32-H2 802.15.4 RX path: the radio
-# transmits fine but never delivers a received frame on H2 (OpenThread stays
-# Detached — every MLE attach gets no parent response). See vendor/esp-radio and
-# src/ieee802154/raw.rs. Drop this once esp-radio ships an H2 802.15.4 RX fix.
-esp-radio       = { path = "vendor/esp-radio" }
+# ccm 0.4.4 (pulled by `ieee802154` 0.6.1 → esp-radio's 802.15.4 AES-CCM) pins
+# `subtle = "=2.4"` exactly, which collides with rs-matter's `subtle ^2.6`. No public
+# ccm 0.4.x relaxes that pin (0.5.0+ do, but are semver-incompatible with ieee802154's
+# `^0.4.0`), so we point at a one-line fork branch that relaxes it to `subtle = "2"`
+# (subtle 2.4→2.6 is API-compatible for ccm's constant-time tag compare; ccm 0.5.0 uses
+# the same). subtle then unifies to 2.6.1. See docs/no-std-plan.md.
+ccm             = { git = "https://github.com/yvf/AEADs", rev = "790a0a5d397afc907d80c513013d1b13f90ccab9" } # branch: ccm-0.4.4-relax-subtle
+# esp-radio 0.18.0 + ESP32-H2 802.15.4 RX fixes, consumed from the yvf/esp-hal fork
+# (branch rcd/esp-radio-0.18-h2-154-fixes) instead of a vendored source tree. The
+# clean upstreamable form is on the fork's fix/* beta.0 branches; this 0.18.0 branch
+# lets our ^0.18-pinned tree consume the fixes without an esp-radio 1.0 migration.
+esp-radio       = { git = "https://github.com/yvf/esp-hal", rev = "4b0e83234de83bf5fda9f2471bb12c9b2497d74b" } # branch: rcd/esp-radio-0.18-h2-154-fixes
 
 [profile.dev]
 opt-level = "z"   # esp-hal: debug is too slow; always optimize a little
