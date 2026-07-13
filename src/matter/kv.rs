@@ -6,10 +6,10 @@
 //! non-concurrent `run()` skips BLE and goes straight to Thread (see stack.rs).
 //!
 //! Layers:
-//! - [`esp_storage::FlashStorage`] — raw NOR flash (blocking `embedded-storage`).
-//! - [`esp_bootloader_esp_idf::partitions`] — locates the `nvs` partition at runtime
+//! - [`esp_storage::FlashStorage`] - raw NOR flash (blocking `embedded-storage`).
+//! - [`esp_bootloader_esp_idf::partitions`] - locates the `nvs` partition at runtime
 //!   (no hardcoded offsets), giving the flash range to operate within.
-//! - [`sequential_storage::map`] — a wear-levelled keyed-blob map over that range. It is
+//! - [`sequential_storage::map`] - a wear-levelled keyed-blob map over that range. It is
 //!   async-only, and `FlashStorage` is blocking, so [`AsyncFlash`] bridges the two and we
 //!   drive it with `block_on` (the flash ops are CPU-blocking and never truly await).
 
@@ -70,7 +70,7 @@ static OT_SS_BUF: StaticCell<OtAlignedBuf> = StaticCell::new();
 
 /// Async `NorFlash` adapter over the blocking esp-storage `FlashStorage`. esp-storage's
 /// flash ops are synchronous and CPU-blocking (they busy-wait with interrupts/cache
-/// disabled), so each async method simply performs the blocking call and returns Ready —
+/// disabled), so each async method simply performs the blocking call and returns Ready -
 /// there is never any real awaiting, so `block_on` completes in a single poll.
 struct AsyncFlash(FlashStorage);
 
@@ -234,7 +234,7 @@ impl KvBlobStore for FlashKv {
 
         match found {
             Some(value) => {
-                log::info!("[matter] KV load key={key} → {} bytes", value.len());
+                log::info!("[matter] KV load key={key} -> {} bytes", value.len());
                 if value.len() > buf.len() {
                     return Err(ErrorCode::NoSpace.into());
                 }
@@ -257,7 +257,7 @@ impl KvBlobStore for FlashKv {
             &data,
         ))
         .map_err(to_matter_err)?;
-        log::info!("[matter] KV store key={key} ← {} bytes ok", data.len());
+        log::info!("[matter] KV store key={key} <- {} bytes ok", data.len());
         Ok(())
     }
 
@@ -278,7 +278,7 @@ impl KvBlobStore for FlashKv {
 /// Constructs its own `FlashStorage` (independent of any live [`FlashKv`]); intended to be
 /// called by the factory-reset path immediately before resetting the chip, so there is no
 /// concurrent flash access to worry about. On the next boot the store reads back empty and
-/// the device is un-commissioned → BLE commissioning.
+/// the device is un-commissioned -> BLE commissioning.
 pub fn wipe_pairing_data() -> Result<(), Error> {
     let mut flash = FlashStorage::new();
     let mut scratch = [0u8; 512];

@@ -33,7 +33,7 @@ impl PowerState {
 }
 
 /// GPIO4 / ADC1_CH3 with line-fit (efuse) calibration. The calibrated read returns
-/// **millivolts**, not raw counts — see [`EmfSensor::new`].
+/// **millivolts**, not raw counts - see [`EmfSensor::new`].
 type EmfAdcPin = AdcPin<GPIO4<'static>, ADC1<'static>, AdcCalLine<ADC1<'static>>>;
 
 /// ADC-backed EMF detector. Reads the LM358 amplifier output (GPIO4 / ADC1_CH3) as an
@@ -46,7 +46,7 @@ pub struct EmfSensor {
 impl EmfSensor {
     /// Configure GPIO4 as a **calibrated** ADC1 input.
     ///
-    /// 11 dB attenuation (≈ 0–3.3 V range). We use `enable_pin_with_cal` with the
+    /// 11 dB attenuation (~ 0-3.3 V range). We use `enable_pin_with_cal` with the
     /// line-fit (`AdcCalLine`) scheme rather than a raw `enable_pin`: the ESP32-H2's
     /// uncalibrated ADC has a large built-in offset/gain error (it read ~3730 for a
     /// 1.65 V input, jamming the operating point against the 4095 ceiling and clipping
@@ -67,7 +67,7 @@ impl EmfSensor {
     pub async fn sample(&mut self) -> PowerState {
         let mut buf = [0u16; EMF_SAMPLE_COUNT];
         for slot in buf.iter_mut() {
-            // The one-shot conversion finishes in a few µs; `nb::block!` busy-waits
+            // The one-shot conversion finishes in a few us; `nb::block!` busy-waits
             // only for that, then we yield for the inter-sample spacing. The read is
             // infallible in practice (error type is `()`); treat a spurious error as 0.
             *slot = nb::block!(self.adc.read_oneshot(&mut self.pin)).unwrap_or(0);
@@ -87,9 +87,9 @@ impl EmfSensor {
     }
 }
 
-// ─── Pure detection logic — no HAL deps ──────────────────────────────────────
+// --- Pure detection logic - no HAL deps --------------------------------------
 
-/// Returns the peak-to-peak swing (max − min) of `samples`.
+/// Returns the peak-to-peak swing (max - min) of `samples`.
 pub fn peak_to_peak(samples: &[u16]) -> u16 {
     let max = samples.iter().copied().max().unwrap_or(0);
     let min = samples.iter().copied().min().unwrap_or(0);

@@ -52,9 +52,9 @@ chip-tool payload generate-manualcode \
 
 Claude decodes the specific QR code string that our code generates to :
 
-Decoded it — here's the full breakdown. I wrote a quick base38 decoder + bit-unpacker matching the Matter spec's onboarding payload format and ran it against your string.
+Decoded it - here's the full breakdown. I wrote a quick base38 decoder + bit-unpacker matching the Matter spec's onboarding payload format and ran it against your string.
 
-**Base38 payload (after `MT:`):** `-24J042C00KA064IJ3P0WISA0DK5N1K8SQ1RYCU1O0` → decodes to 25 raw bytes, the first 11 of which hold the fixed fields:
+**Base38 payload (after `MT:`):** `-24J042C00KA064IJ3P0WISA0DK5N1K8SQ1RYCU1O0` -> decodes to 25 raw bytes, the first 11 of which hold the fixed fields:
 
 | Field                  | Value                      | Notes                                                                            |
 |------------------------+----------------------------+----------------------------------------------------------------------------------|
@@ -62,23 +62,23 @@ Decoded it — here's the full breakdown. I wrote a quick base38 decoder + bit-u
 | Vendor ID              | 65521 (`0xFFF1`)           | Standard Matter **test/example** vendor ID                                       |
 | Product ID             | 32769 (`0x8001`)           | Test product ID                                                                  |
 | Custom Flow            | 0                          | Standard commissioning flow, no special vendor steps                             |
-| Discovery Capabilities | `0x02` (binary `00000010`) | Bit 1 set → **BLE** discovery only                                               |
+| Discovery Capabilities | `0x02` (binary `00000010`) | Bit 1 set -> **BLE** discovery only                                               |
 | Discriminator          | 3840 (`0xF00`)             | Used to pick this device out during BLE scanning                                 |
-| Setup Passcode         | 20202021                   | The commissioning PIN — this is the well-known Matter reference/example passcode |
+| Setup Passcode         | 20202021                   | The commissioning PIN - this is the well-known Matter reference/example passcode |
 | Padding                | 0                          | Pads fixed fields to a byte boundary                                             |
 
 That fixed block uses exactly 88 bits (11 bytes), which matches the spec layout (3+16+16+2+8+12+27+4 = 88 bits).
 
-**Remaining data (14 bytes) — optional TLV extension:**
+**Remaining data (14 bytes) - optional TLV extension:**
 
 There's extra data beyond the fixed fields, which the Matter spec allows for optional vendor info encoded as TLV. Decoding it:
-- `0x15` → start of an anonymous TLV Structure
-- `0x2C` → context tag, UTF-8 string (1-byte length)
-- tag `0x00` → this tag number conventionally means **Serial Number** in Matter's optional QR payload data
+- `0x15` -> start of an anonymous TLV Structure
+- `0x2C` -> context tag, UTF-8 string (1-byte length)
+- tag `0x00` -> this tag number conventionally means **Serial Number** in Matter's optional QR payload data
 - length `0x09` (9 bytes)
-- data bytes `31 32 33 34 35 36 37 38 39` → ASCII for **"123456789"**
-- `0x18` → End-of-Container
+- data bytes `31 32 33 34 35 36 37 38 39` -> ASCII for **"123456789"**
+- `0x18` -> End-of-Container
 
 So the extension is a serial number field containing the string `"123456789"`.
 
-**Summary:** This is a standard Matter **test/reference** QR code — vendor ID `0xFFF1`, discriminator `3840`, and passcode `20202021` are the well-known default values baked into CHIP SDK example apps (like the all-clusters or lighting sample apps), with BLE-only discovery and an attached serial number of `123456789`. It's not a real production device's code — it's the kind of payload you'd see logged when spinning up a Matter example application for testing.
+**Summary:** This is a standard Matter **test/reference** QR code - vendor ID `0xFFF1`, discriminator `3840`, and passcode `20202021` are the well-known default values baked into CHIP SDK example apps (like the all-clusters or lighting sample apps), with BLE-only discovery and an attached serial number of `123456789`. It's not a real production device's code - it's the kind of payload you'd see logged when spinning up a Matter example application for testing.

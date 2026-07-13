@@ -1,8 +1,8 @@
 //! Shared state between the autonomous power-monitor [`Controller`](crate::controller)
 //! and the Matter device-model handlers (EP1 On/Off plug, EP2 contact sensor).
 //!
-//! The controller runs independently of Matter — the safety function must work whether
-//! or not the device is commissioned — but the Matter endpoints have to (a) reflect the
+//! The controller runs independently of Matter - the safety function must work whether
+//! or not the device is commissioned - but the Matter endpoints have to (a) reflect the
 //! controller's state to HomeKit and (b) let HomeKit trigger a manual reset. Both live on
 //! the same executor; this module is a small set of statics with a typed API so neither
 //! side reaches into the other.
@@ -29,10 +29,10 @@ static POWER_PRESENT: AtomicBool = AtomicBool::new(true);
 static PLUG_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static POWER_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-/// HomeKit "On" → controller: run one manual reset cycle.
+/// HomeKit "On" -> controller: run one manual reset cycle.
 static MANUAL_TRIGGER: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
-// ── Controller side ─────────────────────────────────────────────────────────
+// -- Controller side ---------------------------------------------------------
 
 /// Report whether a reset cycle is currently running. `true` = On (actuating),
 /// `false` = Off. The controller is the sole authority for this state.
@@ -55,7 +55,7 @@ pub async fn wait_manual_trigger() {
     MANUAL_TRIGGER.wait().await
 }
 
-// ── Matter side ─────────────────────────────────────────────────────────────
+// -- Matter side -------------------------------------------------------------
 
 /// Current plug on/off state (a reset cycle is running).
 pub fn plug_active() -> bool {
@@ -77,7 +77,7 @@ pub async fn power_changed() {
     POWER_CHANGED.wait().await
 }
 
-/// HomeKit "On" command → request one manual reset cycle from the controller.
+/// HomeKit "On" command -> request one manual reset cycle from the controller.
 pub fn request_manual_cycle() {
     MANUAL_TRIGGER.signal(());
 }

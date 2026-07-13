@@ -17,7 +17,7 @@ use rs_matter_stack::nal::UdpBind;
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 
-/// max-fabrics-2 → up to (fabrics + 1) operational/commissionable services.
+/// max-fabrics-2 -> up to (fabrics + 1) operational/commissionable services.
 const MAX_MATTER_SERVICES: usize = 3;
 const OT_MDNS_BUF_SZ: usize = 256;
 

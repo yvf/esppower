@@ -7,8 +7,8 @@
 //! Flow:
 //!  1. Monitor mains presence. When power is lost, require `POWER_LOSS_DEBOUNCE_MS`
 //!     of *continuous* absence before acting (ignores brief dropouts/glitches).
-//!  2. On confirmed loss, run one actuator cycle (extend → retract) to re-arm the RCD.
-//!  3. Watch a further `POST_RESET_RECHECK_MS`. If power returns, the cycle worked →
+//!  2. On confirmed loss, run one actuator cycle (extend -> retract) to re-arm the RCD.
+//!  3. Watch a further `POST_RESET_RECHECK_MS`. If power returns, the cycle worked ->
 //!     back to monitoring. If it stays absent the whole window, run a second (final)
 //!     actuator cycle.
 //!  4. After the second cycle, *latch*: stop actuating. Re-arm (return to monitoring)
@@ -62,52 +62,52 @@ impl Controller {
 
         loop {
             // 1. Idle until power is lost. A HomeKit manual-reset request is honored
-            //    *inside* every poll wait (see `poll_power`), so it works in any state —
-            //    idle, mid-debounce, or latched — not only while idle.
+            //    *inside* every poll wait (see `poll_power`), so it works in any state -
+            //    idle, mid-debounce, or latched - not only while idle.
             self.wait_for_loss().await;
 
             // 2. Debounce: require continuous absence before acting.
             info!(
-                "Controller: power loss detected — confirming {} s of continuous loss",
+                "Controller: power loss detected - confirming {} s of continuous loss",
                 POWER_LOSS_DEBOUNCE_MS / 1_000
             );
             if self
                 .wait_for_power_or_timeout(Duration::from_millis(POWER_LOSS_DEBOUNCE_MS))
                 .await
             {
-                info!("Controller: power restored during debounce — no action taken");
+                info!("Controller: power restored during debounce - no action taken");
                 continue;
             }
 
-            // 3. Confirmed sustained loss → first reset cycle.
-            info!("Controller: sustained power loss confirmed — running reset cycle 1");
+            // 3. Confirmed sustained loss -> first reset cycle.
+            info!("Controller: sustained power loss confirmed - running reset cycle 1");
             self.run_actuator_cycle(1).await;
 
             // 4. Re-check: watch a further window for continuous absence.
             info!(
-                "Controller: cycle 1 done — watching {} s for power",
+                "Controller: cycle 1 done - watching {} s for power",
                 POST_RESET_RECHECK_MS / 1_000
             );
             if self
                 .wait_for_power_or_timeout(Duration::from_millis(POST_RESET_RECHECK_MS))
                 .await
             {
-                info!("Controller: power restored after cycle 1 — back to monitoring");
+                info!("Controller: power restored after cycle 1 - back to monitoring");
                 continue;
             }
 
-            // 5. Still absent → second (final) reset cycle.
-            info!("Controller: power still absent — running reset cycle 2 (final)");
+            // 5. Still absent -> second (final) reset cycle.
+            info!("Controller: power still absent - running reset cycle 2 (final)");
             self.run_actuator_cycle(2).await;
 
             // 6. Latch: no further cycles. Re-arm only after power returns and holds.
             info!(
-                "Controller: latched after 2 cycles — re-arming only after {} s of continuous power",
+                "Controller: latched after 2 cycles - re-arming only after {} s of continuous power",
                 POWER_RESTORE_CONFIRM_MS / 1_000
             );
             self.wait_for_sustained_power(Duration::from_millis(POWER_RESTORE_CONFIRM_MS))
                 .await;
-            info!("Controller: power restored and held — re-arming, back to monitoring");
+            info!("Controller: power restored and held - re-arming, back to monitoring");
         }
     }
 
@@ -115,7 +115,7 @@ impl Controller {
     /// Matter On/Off plug as "On" for the duration of the cycle and "Off" once complete
     /// (covers both manual and automatic cycles), keeping HomeKit's tile consistent.
     async fn run_actuator_cycle(&mut self, cycle: u32) {
-        info!("Controller: reset cycle {} — actuating", cycle);
+        info!("Controller: reset cycle {} - actuating", cycle);
         link::set_plug_active(true);
         self.actuator.extend().await;
         self.actuator.retract().await;
@@ -124,7 +124,7 @@ impl Controller {
     }
 
     /// One poll tick. Waits up to `POWER_POLL_INTERVAL_MS`, but wakes immediately if
-    /// HomeKit requests a manual reset — in which case it runs one full actuator cycle
+    /// HomeKit requests a manual reset - in which case it runs one full actuator cycle
     /// *now* (safe: we are between polls, never mid-actuation) before sampling. This is
     /// the single choke-point through which every wait in the controller passes, so a
     /// manual reset is honored in ANY state (idle, debounce, re-check, or latched) without
@@ -136,7 +136,7 @@ impl Controller {
         )
         .await
         {
-            info!("Controller: manual reset requested via Matter — running one cycle");
+            info!("Controller: manual reset requested via Matter - running one cycle");
             self.run_actuator_cycle(0).await;
         }
         self.sample().await
@@ -150,7 +150,7 @@ impl Controller {
 
     /// Wait up to `timeout` for power to be *restored*, polling every
     /// `POWER_POLL_INTERVAL_MS`. A restoration is only accepted once power has stayed
-    /// present continuously for `POWER_PRESENT_CONFIRM_MS` — a single glitch is ignored
+    /// present continuously for `POWER_PRESENT_CONFIRM_MS` - a single glitch is ignored
     /// and the wait continues. Returns `true` if restoration is confirmed (abort the
     /// reset), `false` if the timeout elapses with power still absent.
     async fn wait_for_power_or_timeout(&mut self, timeout: Duration) -> bool {
@@ -206,7 +206,7 @@ impl Controller {
             info!("Controller: power state changed to {:?}", power);
             self.last_power_state = power;
         }
-        // Mirror to the Matter contact sensor (closed = power present). Idempotent — only
+        // Mirror to the Matter contact sensor (closed = power present). Idempotent - only
         // pushes a subscription report when the value actually changes.
         link::set_power_present(power.is_present());
     }

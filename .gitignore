@@ -16,7 +16,7 @@ debug/
 /build.log
 /run.out
 
-# Serial-monitor / tool captures — runtime logs; chip-tool.md/.out also carry the
+# Serial-monitor / tool captures - runtime logs; chip-tool.md/.out also carry the
 # Active Operational Dataset incl. the Thread network key. NEVER commit these.
 /esp*.out
 /chip-tool.out

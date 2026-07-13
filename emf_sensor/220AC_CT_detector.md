@@ -1,6 +1,6 @@
 # AC Mains Power Detection with ESP32
 
-> **⚠️ SUPERSEDED — historical reference only.** The CT-clamp approach below was the
+> **⚠️ SUPERSEDED - historical reference only.** The CT-clamp approach below was the
 > first option explored, then set aside in favour of a contactless EMF sensor. The
 > current, working sensor is the buffered LM358 design in
 > **`220AC_EMF_Remote_detector.md`**.
@@ -26,7 +26,7 @@ A **non-invasive current transformer (CT) sensor** is the recommended approach. 
 
 **Supplier:** [rbdimmer.com](https://www.rbdimmer.com/shop/sct-013-sensor-adapter-31)
 
-This is a purpose-built, commercially available signal conditioning board designed specifically to interface SCT-013 current transformers with microcontrollers like the ESP32. It includes a complete signal conditioning circuit with precision voltage divider and filtering, converting the CT's AC output to a microcontroller-friendly **0–3.3V signal** — no additional components or soldering required.
+This is a purpose-built, commercially available signal conditioning board designed specifically to interface SCT-013 current transformers with microcontrollers like the ESP32. It includes a complete signal conditioning circuit with precision voltage divider and filtering, converting the CT's AC output to a microcontroller-friendly **0-3.3V signal** - no additional components or soldering required.
 
 ### Wiring
 
@@ -38,7 +38,7 @@ This is a purpose-built, commercially available signal conditioning board design
 
 ### CT Sensor
 
-Pair the adapter with an **SCT-013-030** (30A, 1V output variant) or **SCT-013-000** (100A, current output variant). The SCT-013-030 is preferred for this use case as its built-in burden resistor produces a clean 0–1V output directly compatible with the adapter.
+Pair the adapter with an **SCT-013-030** (30A, 1V output variant) or **SCT-013-000** (100A, current output variant). The SCT-013-030 is preferred for this use case as its built-in burden resistor produces a clean 0-1V output directly compatible with the adapter.
 
 Connect the CT sensor's 3.5mm jack directly into the adapter's socket.
 
@@ -47,7 +47,7 @@ Selected the SCT013 (100A, 1V) from [yhdc.com](https://www.poweruc.pl/collection
 
 ---
 
-## ESP32 Code — Presence Detection
+## ESP32 Code - Presence Detection
 
 ```cpp
 #define CT_PIN 34

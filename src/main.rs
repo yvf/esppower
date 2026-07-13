@@ -1,7 +1,7 @@
-//! RCD Reset Controller — no-std (esp-hal) rewrite, ESP32-H2.
+//! RCD Reset Controller - no-std (esp-hal) rewrite, ESP32-H2.
 //!
 //! Phase 3: Thread (OpenThread) AND BLE (trouble) running concurrently on the
-//! shared H2 radio (the coexistence Matter needs — commission over BLE, operate
+//! shared H2 radio (the coexistence Matter needs - commission over BLE, operate
 //! over Thread). BLE currently advertises a placeholder GATT service; Phase 4
 //! replaces it with the Matter BTP service and wires the rs-matter-stack glue.
 //! See docs/no-std-plan.md.
@@ -62,7 +62,7 @@ macro_rules! mk_static {
     }};
 }
 
-// ─── Thread (OpenThread) sizing ──────────────────────────────────────────────
+// --- Thread (OpenThread) sizing ----------------------------------------------
 const UDP_MAX_SOCKETS: usize = 2;
 const UDP_SOCKETS_BUF: usize = 1280;
 const SRP_MAX_SERVICES: usize = 2;
@@ -72,7 +72,7 @@ const SRP_SERVICE_BUF: usize = 300;
 async fn main(spawner: Spawner) {
     esp_alloc::heap_allocator!(size: 64 * 1024);
     esp_println::logger::init_logger_from_env();
-    info!("RCD no-std (Thread + BLE coex) starting…");
+    info!("RCD no-std (Thread + BLE coex) starting...");
 
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
@@ -83,11 +83,11 @@ async fn main(spawner: Spawner) {
             .software_interrupt0,
     );
 
-    // ── Thread ────────────────────────────────────────────────────────────────
+    // -- Thread ----------------------------------------------------------------
     let rng = mk_static!(Rng, Rng::new());
 
     // Stable device identity from the chip's factory MAC. This MUST be constant across
-    // reboots — it derives the Thread extended (MAC) address, the SRP hostname, and the
+    // reboots - it derives the Thread extended (MAC) address, the SRP hostname, and the
     // BLE address. A random EUI-64 each boot makes the device look brand-new to the mesh
     // and the SRP server every time (stale AAAA records, re-registration conflicts).
     // Expand the 6-byte EUI-48 to an EUI-64 the standard way (insert 0xFF 0xFE).
@@ -103,7 +103,7 @@ async fn main(spawner: Spawner) {
         mk_static!(OtSrpResources<SRP_MAX_SERVICES, SRP_SERVICE_BUF>, OtSrpResources::new());
     // OpenThread settings storage. The normal (matter-ble) build persists to flash so the
     // SRP key survives reboots (else re-registration collides with the border router's
-    // stale lease → OT_ERROR_DUPLICATED → HomeKit can't reach the device). The thread-only
+    // stale lease -> OT_ERROR_DUPLICATED -> HomeKit can't reach the device). The thread-only
     // diagnostic keeps them in RAM.
     #[cfg(feature = "matter-ble")]
     let ot_settings: &'static mut dyn openthread::Settings =
@@ -132,7 +132,7 @@ async fn main(spawner: Spawner) {
         .unwrap(),
     );
 
-    // ── Power monitor + auto-reset ──────────────────────────────────────────────
+    // -- Power monitor + auto-reset ----------------------------------------------
     // Runs independently of Matter/Thread: the safety function must work whether or
     // not the device is commissioned. Monitors the EMF sensor (GPIO4/ADC1) and drives
     // the L12 actuator (GPIO10/LEDC) on power loss.
@@ -150,14 +150,14 @@ async fn main(spawner: Spawner) {
     );
 
     // Diagnostic: attach Thread directly, with BLE never initialized, to isolate the
-    // 802.15.4 radio from BLE↔154 contention. Enabled via `--features thread-only-test`
+    // 802.15.4 radio from BLE<->154 contention. Enabled via `--features thread-only-test`
     // + THREAD_TEST_DATASET (hex TLV). Never returns.
     #[cfg(feature = "thread-only-test")]
     thread_only_test(ot).await;
 
     // Bring the IPv6 interface up (link-local) so the Matter operational stack has
     // a netif to initialize against during BLE commissioning. Thread itself is NOT
-    // attached here — the commissioner supplies the operational dataset over BLE and
+    // attached here - the commissioner supplies the operational dataset over BLE and
     // `matter::OtNetCtl` applies it (set_active_dataset_tlv + enable_thread) then.
     #[cfg(feature = "matter-ble")]
     {
@@ -171,7 +171,7 @@ async fn main(spawner: Spawner) {
         // internally so it can supervise and restart the Matter stack on an unforeseen
         // error (see its supervised run loop). This call returns only if the one-time
         // pre-loop init fails; the run loop itself never returns.
-        info!("Starting Matter (commission over BLE, operate over Thread)…");
+        info!("Starting Matter (commission over BLE, operate over Thread)...");
         if let Err(e) = matter::run_matter(ot, peripherals.BT, ieee_eui64, Rng::new()).await {
             warn!("Matter failed to initialize (before the supervised run loop): {e:?}");
         }
@@ -179,7 +179,7 @@ async fn main(spawner: Spawner) {
 }
 
 /// Diagnostic: apply a hardcoded Thread dataset and attach, with BLE never brought up.
-/// The dataset TLV comes from the `THREAD_TEST_DATASET` env var (hex) at build time —
+/// The dataset TLV comes from the `THREAD_TEST_DATASET` env var (hex) at build time -
 /// it carries the network key, so keep it out of the repo / shell history. Logs the
 /// device role every 2s so we can see whether attach succeeds when the 802.15.4 radio
 /// has no BLE contention.
@@ -226,19 +226,19 @@ async fn thread_only_test(ot: OpenThread<'static>) -> ! {
     }
 }
 
-// ─── Thread tasks ────────────────────────────────────────────────────────────
+// --- Thread tasks ------------------------------------------------------------
 
 #[embassy_executor::task]
 async fn run_ot(ot: OpenThread<'static>, radio: EspRadio<'static>) -> ! {
     ot.run(radio).await
 }
 
-// ─── Power-monitor task ────────────────────────────────────────────────────────
+// --- Power-monitor task --------------------------------------------------------
 
-// ─── Factory-reset button ──────────────────────────────────────────────────────
+// --- Factory-reset button ------------------------------------------------------
 
 /// Poll a momentary push-button on GPIO5 (active-low, internal pull-up). When held
-/// continuously for 3 s, erase the persisted Matter/Thread pairing and reboot — the
+/// continuously for 3 s, erase the persisted Matter/Thread pairing and reboot - the
 /// device then comes up un-commissioned and re-enters BLE commissioning. Polling (rather
 /// than edge interrupts) keeps it simple and debounces naturally.
 #[cfg(feature = "matter-ble")]
@@ -258,9 +258,9 @@ async fn run_reset_button(pin: esp_hal::peripherals::GPIO5<'static>) {
         if button.is_low() {
             held_ms += POLL_MS;
             if held_ms >= HOLD_MS {
-                warn!("Factory reset: button held {}s — wiping pairing and rebooting", HOLD_MS / 1000);
+                warn!("Factory reset: button held {}s - wiping pairing and rebooting", HOLD_MS / 1000);
                 if let Err(e) = matter::wipe_pairing_data() {
-                    warn!("Factory reset: wipe failed: {e:?} — rebooting anyway");
+                    warn!("Factory reset: wipe failed: {e:?} - rebooting anyway");
                 }
                 esp_hal::system::software_reset();
             }
@@ -282,7 +282,7 @@ async fn run_controller(
     let actuator = match actuator::Actuator::new(ledc, actuator_pin) {
         Ok(a) => a,
         Err(e) => {
-            error!("Controller: actuator init failed: {e:?} — power monitor disabled");
+            error!("Controller: actuator init failed: {e:?} - power monitor disabled");
             core::future::pending().await
         }
     };

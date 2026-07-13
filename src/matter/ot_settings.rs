@@ -1,6 +1,6 @@
 //! Flash-persisted OpenThread settings.
 //!
-//! OpenThread stores small settings blobs (network info, parent info, and — crucially —
+//! OpenThread stores small settings blobs (network info, parent info, and - crucially -
 //! the **SRP ECDSA key**) via its `Settings` trait. The default `SimpleRamSettings` keeps
 //! them in RAM, so on every reboot the device generates a *new* SRP key. The Thread
 //! border router still reserves the device's SRP hostname for the *old* key (SRP key-lease
@@ -13,7 +13,7 @@
 //! its *own* existing registration after a reboot instead of colliding with it.
 //!
 //! The `Settings` trait is synchronous and our flash ops are synchronous (block_on over an
-//! immediately-completing future), so a plain write-through works — no background task.
+//! immediately-completing future), so a plain write-through works - no background task.
 
 use embassy_time::{Duration, Instant};
 
@@ -25,7 +25,7 @@ use super::kv::SettingsFlash;
 
 /// How long to defer a persisted-key flash write after the change. The SRP ECDSA key
 /// (the only persisted key) is generated *during* SRP registration, and an esp-storage
-/// erase blocks interrupts ~15 ms — long enough on the single shared 2.4 GHz radio to
+/// erase blocks interrupts ~15 ms - long enough on the single shared 2.4 GHz radio to
 /// drop the SRP UPDATE and leave the device undiscoverable. Deferring the write past the
 /// registration + first-CASE window lets it land in a later radio lull instead. It is
 /// flushed lazily on the next settings access (OpenThread writes transient keys 3/4/5
@@ -37,11 +37,11 @@ const BLOB_KEY: u16 = 1;
 
 /// OpenThread setting keys we persist across reboots. Deliberately ONLY the SRP client
 /// ECDSA key (`OT_SETTINGS_KEY_SRP_ECDSA_KEY = 11`): it is written once and is the sole
-/// thing needed to avoid the `OT_ERROR_DUPLICATED` SRP conflict on reboot (same key → the
+/// thing needed to avoid the `OT_ERROR_DUPLICATED` SRP conflict on reboot (same key -> the
 /// border router accepts refreshing our own registration).
 ///
 /// Everything else is intentionally NOT persisted: the dataset is re-applied by Matter on
-/// reboot, and the transient keys — NetworkInfo(3), ParentInfo(4), ChildInfo(5) — are
+/// reboot, and the transient keys - NetworkInfo(3), ParentInfo(4), ChildInfo(5) - are
 /// rewritten *constantly* during a Thread attach. Persisting those made every attach
 /// trigger a ~15 ms interrupts-off flash erase, starving the radio (802.15.4
 /// `ChannelAccessFailure`) and breaking operational CASE. Restricting persistence to the
@@ -92,7 +92,7 @@ impl FlashSettings {
                 log::info!("[matter] OT settings: restored {restored} entries from flash");
             }
             Ok(None) => log::info!("[matter] OT settings: none saved (fresh)"),
-            Err(_) => log::warn!("[matter] OT settings: load failed — starting fresh"),
+            Err(_) => log::warn!("[matter] OT settings: load failed - starting fresh"),
         }
 
         Ok(Self {
@@ -104,7 +104,7 @@ impl FlashSettings {
     }
 
     /// Mark the persisted set as changed, to be written after [`FLASH_DEFER`]. Records the
-    /// time only on the 0→dirty transition so the flush fires relative to the *first*
+    /// time only on the 0->dirty transition so the flush fires relative to the *first*
     /// pending change (which, for the write-once SRP key, is the change itself).
     fn mark_dirty(&mut self) {
         if self.dirty_since.is_none() {
@@ -132,7 +132,7 @@ impl FlashSettings {
                 continue;
             }
             if n + 4 + value.len() > self.scratch.len() {
-                log::warn!("[matter] OT settings too large to persist — truncating");
+                log::warn!("[matter] OT settings too large to persist - truncating");
                 break;
             }
             self.scratch[n..n + 2].copy_from_slice(&key.to_le_bytes());
@@ -170,7 +170,7 @@ impl Settings for FlashSettings {
     fn set(&mut self, key: u16, value: &[u8]) -> Result<(), SettingsError> {
         self.flush_if_due();
         let r = self.ram.set(key, value);
-        // Only persist when a persisted key changes — keeps the frequent transient writes
+        // Only persist when a persisted key changes - keeps the frequent transient writes
         // (network/parent/child info during attach) off the flash/radio path entirely.
         // Deferred (not written now): the SRP key changes *during* SRP registration, and a
         // synchronous erase there starves the radio and kills the registration.

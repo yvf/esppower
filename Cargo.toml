@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.84"
 authors = ["Yan Fitterer"]
-description = "RCD Reset Controller — ESP32-H2, no-std (esp-hal) Matter over Thread"
+description = "RCD Reset Controller - ESP32-H2, no-std (esp-hal) Matter over Thread"
 
 [[bin]]
 name = "rcd-nostd"
@@ -19,19 +19,19 @@ matter-ble = ["esp-radio/ble"]
 
 # Diagnostic: skip BLE/Matter entirely and attach Thread directly from a dataset
 # supplied at build time via the THREAD_TEST_DATASET env var (hex TLV). Build it with
-# `--no-default-features` so `esp-radio/ble` is NOT compiled in — this isolates the
+# `--no-default-features` so `esp-radio/ble` is NOT compiled in - this isolates the
 # 802.15.4 radio to check whether the BLE feature itself breaks 802.15.4 RX:
 #   THREAD_TEST_DATASET=0e08... ./build.sh run --release --no-default-features --features thread-only-test
 thread-only-test = []
 
-# ─── Core no-std esp-hal stack (version matrix from esp-rs/openthread esp example) ──
+# --- Core no-std esp-hal stack (version matrix from esp-rs/openthread esp example) --
 [dependencies]
 esp-hal       = { version = "1.1", features = ["esp32h2", "log-04", "unstable", "exception-handler"] }
 esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"] }
 # `ble` is added via the `matter-ble` cargo feature (on by default) so the thread-only
 # diagnostic can build without it (`--no-default-features`) to isolate 802.15.4.
 # `log-04` routes esp-radio's internal logging (info!/warn!/trace!) to the `log` crate
-# (esp-println) — otherwise those macros are no-ops. Needed to see the 802.15.4 driver's
+# (esp-println) - otherwise those macros are no-ops. Needed to see the 802.15.4 driver's
 # own diagnostics (e.g. the patched 802.15.4 RX-interrupt debug).
 esp-radio     = { version = "0.18", features = ["esp32h2", "unstable", "ieee802154", "log-04"] }
 esp-alloc     = { version = "0.10" }
@@ -68,12 +68,12 @@ rand_core      = "0.9"
 # rs-matter's crypto wants a rand_core 0.6 `CryptoRngCore`; aliased so the matter
 # glue can shim one over esp-hal's (0.9) Rng. See src/matter/stack.rs.
 rand_core_06   = { package = "rand_core", version = "0.6", default-features = false }
-# Force subtle ≥2.6 so it unifies across rs-matter (needs 2.6) and esp-radio's
-# 802.15.4 ccm (patched fork, pin relaxed — see [patch.crates-io]). Direct dep
+# Force subtle >=2.6 so it unifies across rs-matter (needs 2.6) and esp-radio's
+# 802.15.4 ccm (patched fork, pin relaxed - see [patch.crates-io]). Direct dep
 # makes it survive `cargo update`.
 subtle         = { version = "2.6", default-features = false }
 
-# Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf — no C build).
+# Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf - no C build).
 # H2 802.15.4 radio supported out of the box via the esp-radio feature.
 openthread = { git = "https://github.com/esp-rs/openthread", features = [
     "esp-radio", "udp", "srp", "dns-client", "edge-nal", "isupper", "log",
@@ -82,15 +82,15 @@ openthread = { git = "https://github.com/esp-rs/openthread", features = [
 tinyrlibc  = { version = "0.5", default-features = false, features = ["utoa", "strtoul"] }
 
 # BLE host (commissioning). Pinned to 0.6: it uses bt-hci 0.8.1, which esp-radio
-# 0.18's BleConnector implements (trouble main needs bt-hci 0.9 → mismatch).
-# 0.6 brings embassy-sync 0.7 — see the embassy-sync note above.
+# 0.18's BleConnector implements (trouble main needs bt-hci 0.9 -> mismatch).
+# 0.6 brings embassy-sync 0.7 - see the embassy-sync note above.
 trouble-host = { version = "0.6", features = ["default-packet-pool-mtu-255", "derive"] }
 
 # Matter: the generic rs-matter-stack (no_std, alloc + rustcrypto) on rs-matter.
 # The transport glue (GattPeripheral over trouble, Thread over openthread) is ours.
 #
 # NOTE: the `log` feature is deliberately OMITTED. It forwards to `rs-matter/log`,
-# which turns on rs-matter's internal logging — including `error!("...{:?}", status)`
+# which turns on rs-matter's internal logging - including `error!("...{:?}", status)`
 # on the (benign) per-attribute wildcard-read path (rs-matter dm/types/reply.rs). That
 # Debug-formats a deeply-nested AttrStatus/AttrPath, and the recursion, stacked on the
 # already-deep commissioning + crypto call chain, OVERFLOWS the main task stack (all
@@ -105,11 +105,11 @@ rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch =
 [patch.crates-io]
 rs-matter       = { git = "https://github.com/sysgrok/rs-matter",       branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
-# ccm 0.4.4 (pulled by `ieee802154` 0.6.1 → esp-radio's 802.15.4 AES-CCM) pins
+# ccm 0.4.4 (pulled by `ieee802154` 0.6.1 -> esp-radio's 802.15.4 AES-CCM) pins
 # `subtle = "=2.4"` exactly, which collides with rs-matter's `subtle ^2.6`. No public
 # ccm 0.4.x relaxes that pin (0.5.0+ do, but are semver-incompatible with ieee802154's
 # `^0.4.0`), so we point at a one-line fork branch that relaxes it to `subtle = "2"`
-# (subtle 2.4→2.6 is API-compatible for ccm's constant-time tag compare; ccm 0.5.0 uses
+# (subtle 2.4->2.6 is API-compatible for ccm's constant-time tag compare; ccm 0.5.0 uses
 # the same). subtle then unifies to 2.6.1. See docs/no-std-plan.md.
 ccm             = { git = "https://github.com/yvf/AEADs", rev = "790a0a5d397afc907d80c513013d1b13f90ccab9" } # branch: ccm-0.4.4-relax-subtle
 # esp-radio 0.18.0 + ESP32-H2 802.15.4 RX fixes, consumed from the yvf/esp-hal fork

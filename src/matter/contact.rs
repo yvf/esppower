@@ -1,8 +1,8 @@
-//! EP2 — Contact Sensor (`0x0015`) with the Boolean State cluster (`0x0045`).
+//! EP2 - Contact Sensor (`0x0015`) with the Boolean State cluster (`0x0045`).
 //!
 //! rs-matter generates the Boolean State cluster *metadata* but ships no handler, so this
-//! module provides one. `StateValue = true` → power present → HomeKit "Closed";
-//! `StateValue = false` → power absent (RCD tripped) → HomeKit "Open" (+ notification).
+//! module provides one. `StateValue = true` -> power present -> HomeKit "Closed";
+//! `StateValue = false` -> power absent (RCD tripped) -> HomeKit "Open" (+ notification).
 //! The value comes from the autonomous [`Controller`](crate::controller) via [`crate::link`].
 //!
 //! Read is delegated to the generated `boolean_state::HandlerAdaptor`; we override the
@@ -19,7 +19,7 @@ use rs_matter_stack::matter::with;
 
 use crate::link;
 
-/// EP1 endpoint id — must match the endpoint number used in the Node (`stack.rs`).
+/// EP1 endpoint id - must match the endpoint number used in the Node (`stack.rs`).
 /// The contact sensor is intentionally the FIRST application endpoint so Apple Home
 /// makes it the primary accessory tile (see `docs/matter_device_choices.md`).
 pub const CONTACT_ENDPOINT_ID: u16 = 1;

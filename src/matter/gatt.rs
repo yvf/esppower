@@ -1,14 +1,14 @@
 //! `GattPeripheral` adapter: Matter BLE commissioning (BTP) over trouble.
 //!
 //! Owns the BLE stack lifecycle: builds the trouble Host, advertises the Matter
-//! BTP service (0xFFF6), and on each connection runs two pumps —
-//!  - **incoming**: GATT writes to C1 → `Btp::process_incoming`,
-//!  - **outgoing**: `Btp::process_outgoing` → C2 indications.
+//! BTP service (0xFFF6), and on each connection runs two pumps -
+//!  - **incoming**: GATT writes to C1 -> `Btp::process_incoming`,
+//!  - **outgoing**: `Btp::process_outgoing` -> C2 indications.
 
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 
-// heapless 0.9 — trouble's version, the one its `AsGatt for Vec<u8,N>` is on.
+// heapless 0.9 - trouble's version, the one its `AsGatt for Vec<u8,N>` is on.
 use heapless_09::Vec as HVec;
 
 use trouble_host::prelude::*;
@@ -32,10 +32,10 @@ struct BtpServer {
 
 #[gatt_service(uuid = "0000FFF6-0000-1000-8000-00805F9B34FB")]
 struct BtpService {
-    /// C1: commissioner → device (write).
+    /// C1: commissioner -> device (write).
     #[characteristic(uuid = "18EE2EF5-263D-4559-959F-4F9C429F9D11", write)]
     c1: HVec<u8, BTP_BUF>,
-    /// C2: device → commissioner (indicate). `Vec` so the indication carries the
+    /// C2: device -> commissioner (indicate). `Vec` so the indication carries the
     /// exact BTP segment length (a fixed array would pad with garbage and corrupt
     /// BTP framing).
     #[characteristic(uuid = "18EE2EF5-263D-4559-959F-4F9C429F9D12", indicate)]
@@ -66,7 +66,7 @@ impl<C: Controller> OtGattPeripheral<C> {
 
     /// Construct WITHOUT a BLE controller, for the operational (already-commissioned)
     /// path where the non-concurrent stack skips `run()` (BLE commissioning). No BLE
-    /// stack is initialized, so no BLE controller task is spun up — important on a
+    /// stack is initialized, so no BLE controller task is spun up - important on a
     /// stack restart, where re-initializing BLE every time leaks the controller's
     /// (heap-allocated) task stack and eventually exhausts memory. If `run()` were ever
     /// called on such an instance (it is not, while commissioned) it fails cleanly with
@@ -90,7 +90,7 @@ impl<C: Controller> GattPeripheral for OtGattPeripheral<C> {
 
         // Enable relaxed MTU negotiation. Without it, rs-matter falls back to the 23-byte
         // MIN_MTU on *any* mismatch between our GATT MTU (251) and the commissioner's
-        // proposed BTP MTU — and those practically never match, so every session ran at
+        // proposed BTP MTU - and those practically never match, so every session ran at
         // MTU 23. Relaxed mode instead uses min(peer, ours, MAX_MTU=247). Paired with the
         // handshake ATT_MTU=0 substitution in `serve_conn`, this lifts BTP to ~247.
         btp.set_relaxed_mtu_nego(true);
@@ -164,8 +164,8 @@ async fn advertise_btp<'a, 'b, C: Controller>(
 ) -> Result<GattConnection<'a, 'b, DefaultPacketPool>, BleHostError<C::Error>> {
     // Default advertising interval (160 ms). We commission in non-concurrent mode (see the
     // `stack.run(...)` note in stack.rs): BLE runs ONLY while the device is un-commissioned,
-    // with Thread not yet attached, so there is no BLE↔802.15.4 coexistence contention to
-    // avoid here — fast advertising just means quicker discovery by the commissioner.
+    // with Thread not yet attached, so there is no BLE<->802.15.4 coexistence contention to
+    // avoid here - fast advertising just means quicker discovery by the commissioner.
     let advertiser = peripheral
         .advertise(
             &Default::default(),
@@ -175,9 +175,9 @@ async fn advertise_btp<'a, 'b, C: Controller>(
             },
         )
         .await?;
-    log::info!("[matter] BLE advertising Matter BTP service (0xFFF6) — waiting for commissioner");
+    log::info!("[matter] BLE advertising Matter BTP service (0xFFF6) - waiting for commissioner");
     let conn = advertiser.accept().await?.with_attribute_server(server)?;
-    log::info!("[matter] BLE commissioner connected — running BTP session");
+    log::info!("[matter] BLE commissioner connected - running BTP session");
     Ok(conn)
 }
 
@@ -191,16 +191,16 @@ async fn serve_conn<P: PacketPool>(
     // NB: read `att_mtu()` *fresh* at each BTP op, never cache it. At connect time it
     // is the 23-byte ATT default; the trouble runner only raises it (to min(247, peer))
     // when the peer's ExchangeMTU completes. Since the runner processes ACL packets in
-    // wire order, that exchange lands before the first C1 write reaches us — but a value
-    // latched at connect would pin BTP to 23 and stall commissioning (Apple → "Accessory
+    // wire order, that exchange lands before the first C1 write reaches us - but a value
+    // latched at connect would pin BTP to 23 and stall commissioning (Apple -> "Accessory
     // Not Found").
 
     // C2 indications must be enabled by the peer (a CCCD write) before we send anything:
     // trouble's `indicate()` *silently drops* the packet and still returns `Ok` when the
-    // subscription isn't active (see `Characteristic::indicate` → `should_indicate`). The
+    // subscription isn't active (see `Characteristic::indicate` -> `should_indicate`). The
     // BlueZ chip-tool writes the BTP handshake to C1 *before* subscribing to C2, so firing
     // the handshake-response indication the instant the C1 write lands races the CCCD
-    // write and gets dropped — the commissioner then times out waiting for the response.
+    // write and gets dropped - the commissioner then times out waiting for the response.
     // This signal latches once the peer enables C2 indications; the outgoing pump waits on
     // it before its first send. Both pumps run cooperatively under one `select`, so a
     // NoopRawMutex is sufficient.
@@ -229,7 +229,7 @@ async fn serve_conn<P: PacketPool>(
                             // commissioner's proposed ATT_MTU (little-endian). Per the Matter
                             // spec a value of 0 means "use the GATT-negotiated ATT MTU". With
                             // relaxed MTU negotiation enabled (see `run`), rs-matter takes
-                            // min(req.mtu, gatt_mtu, MAX_MTU) — but req.mtu==0 would underflow
+                            // min(req.mtu, gatt_mtu, MAX_MTU) - but req.mtu==0 would underflow
                             // to a bogus MTU. So when the field is 0 we substitute our real
                             // ATT MTU into a patched copy before handing it to rs-matter. This
                             // lifts BTP off the 23-byte floor (which segmented the ~670-byte
@@ -238,7 +238,7 @@ async fn serve_conn<P: PacketPool>(
                             let d = if d.len() >= 8 && d.first().is_some_and(|b| b & 0x40 != 0) {
                                 let cli_mtu = u16::from_le_bytes([d[6], d[7]]);
                                 log::info!(
-                                    "[matter] BTP handshake req: {d:02x?} → client ATT_MTU field = {cli_mtu}"
+                                    "[matter] BTP handshake req: {d:02x?} -> client ATT_MTU field = {cli_mtu}"
                                 );
                                 if cli_mtu == 0 {
                                     let _ = patched.extend_from_slice(d);
@@ -246,7 +246,7 @@ async fn serve_conn<P: PacketPool>(
                                     patched[6] = sub[0];
                                     patched[7] = sub[1];
                                     log::info!(
-                                        "[matter] BTP handshake ATT_MTU=0 → substituting {mtu}"
+                                        "[matter] BTP handshake ATT_MTU=0 -> substituting {mtu}"
                                     );
                                     &patched[..]
                                 } else {
@@ -293,7 +293,7 @@ async fn serve_conn<P: PacketPool>(
         // Wait until the peer has enabled C2 indications, else the handshake response is
         // silently dropped (see the `subscribed` note above).
         subscribed.wait().await;
-        log::info!("[matter] BTP C2 subscribed — starting outgoing pump");
+        log::info!("[matter] BTP C2 subscribed - starting outgoing pump");
         let mut buf = [0u8; BTP_BUF];
         loop {
             btp.wait_outgoing().await;
@@ -318,5 +318,5 @@ async fn serve_conn<P: PacketPool>(
     };
 
     select(incoming, outgoing).await;
-    log::info!("[matter] serve_conn returning — BTP session over");
+    log::info!("[matter] serve_conn returning - BTP session over");
 }

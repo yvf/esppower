@@ -4,7 +4,7 @@
 //! openthread/trouble adapters. Auto-advertises BLE for commissioning and prints
 //! the pairing QR/code; once commissioned, operates over Thread.
 //!
-//! Uses the rs-matter TEST device credentials + a no-persistence KV — enough to
+//! Uses the rs-matter TEST device credentials + a no-persistence KV - enough to
 //! commission with chip-tool / for bring-up. Real DAC + a flash-backed KV come
 //! later. Port of rs-matter-stack `examples/light.rs`.
 
@@ -45,8 +45,8 @@ use super::{OtGattPeripheral, OtMdns, OtNetCtl, OtNetStack, OtNetif};
 /// Tune up if init panics for lack of space. (light.rs uses 23500.)
 const BUMP_SIZE: usize = 23500;
 
-/// Endpoint 2 — On/Off Plug-In Unit (the RCD resetter). Endpoint 1 is the contact
-/// sensor (the primary tile — see `docs/matter_device_choices.md`); endpoint 0 is the root.
+/// Endpoint 2 - On/Off Plug-In Unit (the RCD resetter). Endpoint 1 is the contact
+/// sensor (the primary tile - see `docs/matter_device_choices.md`); endpoint 0 is the root.
 const PLUG_ENDPOINT_ID: u16 = 2;
 
 /// On/Off Plug-In Unit device type (Matter Device Library `0x010A`). Gives HomeKit a
@@ -71,9 +71,9 @@ static MATTER_STACK: StaticCell<ThreadMatterStack<BUMP_SIZE>> = StaticCell::new(
 static QR_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
 
 /// The Matter node (docs/matter_device_choices.md):
-///   EP0 — Root Node (system clusters)
-///   EP1 — Contact Sensor: downstream mains presence (Boolean State) — the PRIMARY tile
-///   EP2 — On/Off Plug-In Unit: the RCD resetter (tap → actuator reset cycle)
+///   EP0 - Root Node (system clusters)
+///   EP1 - Contact Sensor: downstream mains presence (Boolean State) - the PRIMARY tile
+///   EP2 - On/Off Plug-In Unit: the RCD resetter (tap -> actuator reset cycle)
 ///
 /// The contact sensor is listed first (and is the lowest application endpoint) so Apple
 /// Home makes it the primary accessory tile; the plug is the secondary tile.
@@ -127,7 +127,7 @@ pub async fn run_matter(
     eui64: [u8; 8],
     rng: esp_hal::rng::Rng,
 ) -> Result<(), Error> {
-    // ── One-time init — MUST stay outside the restart loop below ─────────────────
+    // -- One-time init - MUST stay outside the restart loop below -----------------
     // A `StaticCell` can be initialized only ONCE (a second `init_with` panics), and the
     // Matter stack is a large fixed static that the supervised loop deliberately REUSES:
     // `stack.run()` re-initializes its own transport and resets its bump allocator on
@@ -140,9 +140,9 @@ pub async fn run_matter(
     let crypto = default_crypto(EspRng(rng), DAC_PRIVKEY);
     let mut rand = crypto.weak_rand()?;
 
-    // EP1 — On/Off Plug-In Unit (RCD resetter) and EP2 — Contact Sensor (mains presence).
+    // EP1 - On/Off Plug-In Unit (RCD resetter) and EP2 - Contact Sensor (mains presence).
     // Built once so their cluster Dataver stays continuous across restarts; both bridge to
-    // the autonomous controller via `crate::link` (On → run a reset cycle; state pushed back).
+    // the autonomous controller via `crate::link` (On -> run a reset cycle; state pushed back).
     let plug = on_off::OnOffHandler::new_standalone(
         Dataver::new_rand(&mut rand),
         PLUG_ENDPOINT_ID,
@@ -152,10 +152,10 @@ pub async fn run_matter(
 
     // Flash-backed KV over the `nvs` partition (fabrics + Thread networks store), built
     // ONCE: `FlashKv::new()` claims a module `StaticCell` buffer, so calling it twice
-    // panics. `startup` loads the persisted fabric into the (reused) stack — deciding the
-    // mode — and the same store is then wrapped as the KV and shared with every run below
+    // panics. `startup` loads the persisted fabric into the (reused) stack - deciding the
+    // mode - and the same store is then wrapped as the KV and shared with every run below
     // by reference (`&kv`; `impl KvBlobStoreAccess for &T`). On a restart the fabric is
-    // already loaded, so this is not repeated — the device stays operational over Thread.
+    // already loaded, so this is not repeated - the device stays operational over Thread.
     let mut store = FlashKv::new()?;
     let commissioned_before = {
         stack.startup(&crypto, &mut store).await?;
@@ -165,16 +165,16 @@ pub async fn run_matter(
 
     if commissioned_before {
         // Already paired: the non-concurrent run() skips BLE and operates over Thread.
-        // Do NOT print the QR / commissioning credentials — nothing is listening on BLE.
+        // Do NOT print the QR / commissioning credentials - nothing is listening on BLE.
         log::info!("[matter] ===== MODE: OPERATIONAL (saved pairing loaded) =====");
         log::info!("[matter] Operating over Thread; BLE is OFF. Hold the reset button 3s to re-pair.");
     } else {
         // Not paired: BLE commissioning window is open. Print the pairing info + QR.
-        // (We build with rs-matter's `log` feature OFF — its QR/PairingCode print pairs
-        // with a stack-overflowing attribute-error Debug format — so we print it ourselves.
+        // (We build with rs-matter's `log` feature OFF - its QR/PairingCode print pairs
+        // with a stack-overflowing attribute-error Debug format - so we print it ourselves.
         // These are constant because we use the rs-matter TEST device credentials.)
         log::info!("[matter] ===== MODE: COMMISSIONING (no saved pairing) =====");
-        log::info!("[matter] Commissioning open over BLE — TEST credentials:");
+        log::info!("[matter] Commissioning open over BLE - TEST credentials:");
         log::info!("[matter]   discriminator : 3840");
         log::info!("[matter]   passcode      : 20202021");
         log::info!("[matter]   manual code   : 3497-011-2332");
@@ -183,15 +183,15 @@ pub async fn run_matter(
     }
 
     // BLE address: static random, derived from the EUI-64. A static random address
-    // (Core spec Vol 6, Part B §1.3.2.1) MUST have its two most-significant bits = 0b11.
-    // BdAddr is little-endian on the HCI wire, so the MSB is byte 5 — set 0xC0 there,
+    // (Core spec Vol 6, Part B sec 1.3.2.1) MUST have its two most-significant bits = 0b11.
+    // BdAddr is little-endian on the HCI wire, so the MSB is byte 5 - set 0xC0 there,
     // NOT byte 0 (the LSB), or the controller rejects advertising with HCI error 0x12.
     let mut addr: [u8; 6] = eui64[2..8].try_into().unwrap_or([0xff; 6]);
-    addr[5] |= 0xc0; // two MSBs = 0b11 → static random
+    addr[5] |= 0xc0; // two MSBs = 0b11 -> static random
 
-    // ── Supervised run loop ──────────────────────────────────────────────────────
-    // `stack.run()` should not return during normal operation, but if it ever exits — Ok,
-    // or Err from an unforeseen internal/transport failure — restart it rather than leave
+    // -- Supervised run loop ------------------------------------------------------
+    // `stack.run()` should not return during normal operation, but if it ever exits - Ok,
+    // or Err from an unforeseen internal/transport failure - restart it rather than leave
     // Matter dead until the next reboot. (A border-router outage alone does NOT trigger
     // this: its report/reconnect failures are handled internally.) The controller's safety
     // loop runs in a separate task and is unaffected. Only the values `run()` consumes by
@@ -205,7 +205,7 @@ pub async fn run_matter(
         let outcome: Result<(), Error> = async {
             // Only initialize BLE when a commissioning window is actually needed. Once
             // commissioned, the non-concurrent stack never calls Gatt::run, so building a
-            // controller would just spin up an unused BLE task — and each `BleConnector`
+            // controller would just spin up an unused BLE task - and each `BleConnector`
             // re-init on a restart LEAKS that task's heap-allocated stack (eventually OOM,
             // as an error-injection test showed). So: a real controller only while
             // un-commissioned; otherwise none (BLE stays fully off).
@@ -244,7 +244,7 @@ pub async fn run_matter(
                     Async(DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
                 );
 
-            // Non-concurrent (BLE-only until paired, then Thread-only) — NOT run_coex.
+            // Non-concurrent (BLE-only until paired, then Thread-only) - NOT run_coex.
             // The H2's single 2.4 GHz radio can't run BLE + 802.15.4 reliably at once, so
             // `run` advertises SupportsConcurrentConnection=false and drops BLE once a
             // fabric exists; the deferred ConnectNetwork is replayed via OtNetCtl::connect.
@@ -269,8 +269,8 @@ pub async fn run_matter(
         .await;
 
         match outcome {
-            Ok(()) => log::warn!("[matter] stack.run returned unexpectedly — restarting in 2 s"),
-            Err(e) => log::warn!("[matter] Matter stack error ({e:?}) — restarting in 2 s"),
+            Ok(()) => log::warn!("[matter] stack.run returned unexpectedly - restarting in 2 s"),
+            Err(e) => log::warn!("[matter] Matter stack error ({e:?}) - restarting in 2 s"),
         }
         // Brief pause so a hard-failing restart can't spin the CPU; the OpenThread task
         // keeps the radio serviced in the meantime.
@@ -281,16 +281,16 @@ pub async fn run_matter(
 /// Render the commissioning QR code (ASCII) plus its text payload to the console.
 ///
 /// rs-matter's own `print_standard_qr_code` renders with its internal `info!`, which is
-/// a no-op unless rs-matter's `log` feature is enabled — and we keep that OFF (it pairs
+/// a no-op unless rs-matter's `log` feature is enabled - and we keep that OFF (it pairs
 /// with a deep attribute-error Debug format that overflows the main task stack). So we
 /// build the same standard QR payload from the TEST device credentials and render it with
 /// our own logger. Uses `QrTextType::Ascii` (space / `#` blocks) for the widest console
-/// font compatibility, and also prints the `MT:…` payload string to paste into a QR-code
+/// font compatibility, and also prints the `MT:...` payload string to paste into a QR-code
 /// generator app if the ASCII art doesn't scan in a given terminal.
 fn print_commissioning_qr() {
     let buf = QR_BUF.init([0u8; 1024]);
 
-    // Standard commissioning flow, BLE discovery — mirrors `Matter::standard_qr_payload`.
+    // Standard commissioning flow, BLE discovery - mirrors `Matter::standard_qr_payload`.
     let payload = QrPayload::new_from_basic_info(
         DiscoveryCapabilities::BLE,
         CommFlowType::Standard,
@@ -307,7 +307,7 @@ fn print_commissioning_qr() {
         }
     };
 
-    // Text payload — paste into any QR-code generator app if the ASCII QR below doesn't
+    // Text payload - paste into any QR-code generator app if the ASCII QR below doesn't
     // render / scan in your console font.
     log::info!("[matter]   QR payload (paste into a QR-code generator app): {text}");
 

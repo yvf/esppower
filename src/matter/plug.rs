@@ -1,4 +1,4 @@
-//! EP1 — On/Off Plug-In Unit (`0x010A`) device logic.
+//! EP1 - On/Off Plug-In Unit (`0x010A`) device logic.
 //!
 //! Implements rs-matter's `OnOffHooks` for the RCD resetter plug. Per the device design
 //! (docs/matter_device_choices.md) the plug is *momentary*: an `On` command fires one actuator
@@ -23,7 +23,7 @@ pub struct RcdPlugHooks;
 
 impl OnOffHooks for RcdPlugHooks {
     // On/Off Plug-In Unit only needs the base On/Off cluster: the `OnOff` attribute plus
-    // the On / Off / Toggle commands. No Lighting (`LT`) feature — that gates the
+    // the On / Off / Toggle commands. No Lighting (`LT`) feature - that gates the
     // StartUpOnOff / OnTime / OffWaitTime lighting attributes and the effect commands,
     // none of which a momentary reset plug uses.
     const CLUSTER: Cluster<'static> = on_off_cluster::FULL_CLUSTER
@@ -42,12 +42,12 @@ impl OnOffHooks for RcdPlugHooks {
     }
 
     fn set_on_off(&self, on: bool) {
-        // `On` → request one actuator reset cycle. The controller owns the actuator and
+        // `On` -> request one actuator reset cycle. The controller owns the actuator and
         // sets the plug state On for the duration of the cycle, then back to Off, which is
-        // pushed to HomeKit by `run` below. `Off` is ignored — the plug is momentary and
+        // pushed to HomeKit by `run` below. `Off` is ignored - the plug is momentary and
         // always returns to Off on its own.
         // Logged so the console shows, unambiguously, that an operational (Thread/CASE)
-        // command from HomeKit reached the device — distinguishing "Home can't reach us"
+        // command from HomeKit reached the device - distinguishing "Home can't reach us"
         // from "the controller didn't act on the request".
         log::info!("[matter] EP1 On/Off command from HomeKit: {}", if on { "On" } else { "Off" });
         if on {
@@ -69,7 +69,7 @@ impl OnOffHooks for RcdPlugHooks {
     }
 
     async fn run<F: Fn(OutOfBandMessage)>(&self, notify: F) {
-        // Push On/Off changes (a reset cycle starting/finishing — manual OR automatic) to
+        // Push On/Off changes (a reset cycle starting/finishing - manual OR automatic) to
         // HomeKit so the tile tracks the actuator. `OutOfBandMessage::Update` makes the
         // OnOff handler re-read `on_off()` and report it to subscribers.
         loop {

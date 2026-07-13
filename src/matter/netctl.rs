@@ -1,8 +1,8 @@
 //! `NetCtl` + `ThreadDiag` + `WirelessDiag` + `NetChangeNotif` adapter over
-//! openthread — the commissioning-critical piece.
+//! openthread - the commissioning-critical piece.
 //!
 //! During Matter commissioning the commissioner sends the Thread operational
-//! dataset (AddOrUpdateThreadNetwork) and then ConnectNetwork → `connect()`,
+//! dataset (AddOrUpdateThreadNetwork) and then ConnectNetwork -> `connect()`,
 //! where we apply the dataset to openthread and wait until the node attaches.
 
 use embassy_time::{Duration, Instant, Timer};
@@ -30,7 +30,7 @@ fn is_attached(ot: &OpenThread) -> bool {
 
 /// Log the identifying fields of a Thread operational dataset (MeshCoP TLVs) so an
 /// attach failure can be cross-checked against the live network. Decodes only the
-/// non-secret TLVs — channel (0x00), PAN ID (0x01), extended PAN ID (0x02), network
+/// non-secret TLVs - channel (0x00), PAN ID (0x01), extended PAN ID (0x02), network
 /// name (0x03). The network key (0x05) and PSKc (0x04) are deliberately NOT logged.
 fn log_dataset_summary(tlv: &[u8]) {
     let mut i = 0;
@@ -96,7 +96,7 @@ impl NetCtl for OtNetCtl<'_> {
         };
 
         log::info!(
-            "[matter] OtNetCtl::connect — applying Thread dataset ({} TLV bytes)",
+            "[matter] OtNetCtl::connect - applying Thread dataset ({} TLV bytes)",
             dataset_tlv.len()
         );
         log_dataset_summary(dataset_tlv);
@@ -138,6 +138,6 @@ impl WirelessDiag for OtNetCtl<'_> {
     }
 }
 
-// Thread diagnostics — all defaults (report unknown) suffice for commissioning;
+// Thread diagnostics - all defaults (report unknown) suffice for commissioning;
 // channel/pan-id/role can be filled from `ot.net_status()` later if needed.
 impl ThreadDiag for OtNetCtl<'_> {}

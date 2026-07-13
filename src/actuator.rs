@@ -2,9 +2,9 @@
 //!
 //! Control interface: RC servo (standard hobby protocol).
 //! - 50 Hz PWM carrier (20 ms period)
-//! - 1 ms pulse (5 % duty)  → fully retracted
-//! - 2 ms pulse (10 % duty) → fully extended
-//! - Signal: 5 V CMOS via an external 3.3→5 V level shifter on GPIO10
+//! - 1 ms pulse (5 % duty)  -> fully retracted
+//! - 2 ms pulse (10 % duty) -> fully extended
+//! - Signal: 5 V CMOS via an external 3.3->5 V level shifter on GPIO10
 //!
 //! The `-I` integrated controller auto-detects RC-servo mode on power-up when it
 //! sees a valid pulse on lead 4 (White wire).
@@ -13,8 +13,8 @@
 //! the ESP32-H2 LEDC a duty change is applied via the "gamma" range RAM, and
 //! esp-hal 1.1's bare `set_duty` does not reset the gamma write-pointer, so only the
 //! *first* duty after channel setup reaches the output (the actuator buzzes once at
-//! boot, then never moves). `configure` runs the full channel setup — including the
-//! write-pointer reset — every time, so re-running it per duty change reliably
+//! boot, then never moves). `configure` runs the full channel setup - including the
+//! write-pointer reset - every time, so re-running it per duty change reliably
 //! re-applies the new pulse width.
 
 use embassy_time::{Duration, Timer};
@@ -36,19 +36,19 @@ use crate::config::{
 // The `Ledc` and `Timer` must outlive the `Channel` (which borrows the timer) and
 // must keep running for as long as PWM is needed. Leaking them to `'static` via
 // these cells avoids a self-referential struct and guarantees the timer counter is
-// never dropped — dropping it would halt the counter and stop all PWM output, so
+// never dropped - dropping it would halt the counter and stop all PWM output, so
 // the actuator would stop seeing valid RC pulses and drift to an undefined position.
 static LEDC_CELL: StaticCell<Ledc<'static>> = StaticCell::new();
 static TIMER_CELL: StaticCell<timer::Timer<'static, LowSpeed>> = StaticCell::new();
 
 /// On ESP32-H2, `set_global_slow_clock(APBClk)` selects `ledc_sclk_sel = 0`, which is
 /// actually the **32 MHz XTAL** (the H2 LEDC has no real APB source). But esp-hal 1.1
-/// computes the timer divisor from `Clocks::get().apb_clock`, a different value — so
+/// computes the timer divisor from `Clocks::get().apb_clock`, a different value - so
 /// the achieved frequency comes out as `requested * 32 MHz / apb_clock`. On the 96 MHz
 /// preset that is ~1/3 of the requested rate, which pushed every servo pulse past 2 ms
 /// (the actuator pinned fully extended regardless of duty). We pre-scale the requested
 /// frequency by `apb_clock / 32 MHz` so the *achieved* frequency is the true 50 Hz.
-const LEDC_LS_SRC_HZ: u32 = 32_000_000; // H2 XTAL — the real LowSpeed source clock
+const LEDC_LS_SRC_HZ: u32 = 32_000_000; // H2 XTAL - the real LowSpeed source clock
 
 pub struct Actuator {
     channel: channel::Channel<'static, LowSpeed>,
@@ -60,7 +60,7 @@ impl Actuator {
     /// actuator in the retracted position.
     ///
     /// Returns an error only if the LEDC timer/channel configuration is rejected
-    /// (e.g. an unattainable frequency/resolution combination — not expected here).
+    /// (e.g. an unattainable frequency/resolution combination - not expected here).
     pub fn new(ledc: LEDC<'static>, pin: GPIO10<'static>) -> Result<Self, channel::Error> {
         let ledc = LEDC_CELL.init(Ledc::new(ledc));
         ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
@@ -71,7 +71,7 @@ impl Actuator {
         let requested_hz =
             ((SERVO_FREQ_HZ as u64 * apb_hz as u64) / LEDC_LS_SRC_HZ as u64) as u32;
         info!(
-            "Actuator: apb_clock={} Hz → requesting LEDC {} Hz to achieve {} Hz",
+            "Actuator: apb_clock={} Hz -> requesting LEDC {} Hz to achieve {} Hz",
             apb_hz, requested_hz, SERVO_FREQ_HZ
         );
 
