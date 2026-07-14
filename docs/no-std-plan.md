@@ -19,10 +19,10 @@ operation comfortably. (esp-alloc places the heap in the SRAM left over after st
 | HAL / chip | **esp-hal 1.1** (`esp32h2`, `unstable`)                                             | peripherals, ADC, LEDC, GPIO                                                                                           |
 | RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy 0.10/0.8/0.5                     | scheduler + radio glue                                                                                                 |
 | Heap       | **esp-alloc 0.10**                                                                  | most of the 320 KB SRAM becomes heap                                                                                  |
-| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) - **patched** (fork branch)                 | one crate, both radios + coex. `[patch.crates-io]` to a fork branch that fixes ESP32-H2 802.15.4 RX bugs (see `docs/upstream-prs/`).  |
-| Thread     | **openthread** (esp-rs/openthread): `esp-radio`,`udp`,`srp`,`dns-client`,`edge-nal` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; provides edge-nal UDP + SRP (Matter's mDNS-over-Thread) |
+| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) - **patched** (fork branch)                 | one crate, both radios + coex. `[patch.crates-io]` to a fork branch that fixes the ESP32-H2 802.15.4 receive path (see `docs/upstream-prs/`).  |
+| Thread     | **openthread 0.2** (pinned esp-rs/openthread `main`): `esp-radio`,`udp`,`srp`,`dns-client` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; native `UdpSocket` + SRP (Matter's mDNS-over-Thread). edge-nal glue via `edge-nal-openthread`. |
 | BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned, see below                                                                                 |
-| Matter     | **rs-matter** (`no_std`) + **rs-matter-stack**                                      | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
+| Matter     | **rs-matter 0.2** (`no_std`) + **rs-matter-stack** (edge-nal 0.7)                   | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
 | Boot       | esp-bootloader-esp-idf 0.5, esp-backtrace/println                                   | (`esp-bootloader-esp-idf` = the IDF partition-table/app-descriptor format, not the IDF runtime)                       |
 
 ## The transport layer (custom glue)
@@ -32,7 +32,10 @@ implementation - the openthread/trouble examples are Thread-only / BLE-only, and
 rs-matter-stack's own examples are std/Linux. So the core custom code (`src/matter/`) is
 a transport layer implementing rs-matter-stack's `NetStack` / `Netif` / `NetCtl` / `Mdns`
 / `GattPeripheral` traits over **openthread** (Thread netif/UDP/SRP) and **trouble** (BLE
-GATT peripheral). The device joins Thread *during* commissioning: the commissioner sends
+GATT peripheral). The `NetStack`'s UDP factory is the upstream **`edge-nal-openthread`**
+crate (`OtUdpStack`) - openthread 0.2 dropped its own edge-nal integration, and that glue
+now lives in a dedicated crate, so `src/matter/net.rs` is just a thin wrapper around it.
+The device joins Thread *during* commissioning: the commissioner sends
 the operational dataset via the NetworkCommissioning cluster, and `OtNetCtl` applies it
 to openthread. See `docs/phase4b-glue-design.md` for the adapter/BTP design detail.
 
@@ -70,12 +73,20 @@ once a fabric exists. `PreexistingWireless` implements both `Thread`+`Gatt` and
 `src/matter/stack.rs`.
 
 **Patched esp-radio for H2 802.15.4 RX.** esp-radio 0.18's 802.15.4 receive path is
-broken on the ESP32-H2 (the ext-address filter is byte-reversed and the RX ISR never
-re-arms / never delivers, so OpenThread can never attach). `[patch.crates-io]` points
-esp-radio at a fork branch (`yvf/esp-hal` @ `rcd/esp-radio-0.18-h2-154-fixes`) - the
-published 0.18.0 crate plus those RX-correctness fixes - instead of a vendored source
-tree. The clean, upstreamable form of the same fixes (against current `main`/beta.0) is
-on the fork's `fix/*` branches; the diffs and PR write-ups are in `docs/upstream-prs/`.
+broken on the ESP32-H2 (the RX ISR never re-arms after an abort, never delivers on
+`RxDone`, and never generates an enhanced ACK for v2 frames, so OpenThread can never
+attach or stay attached). `[patch.crates-io]` points esp-radio at a fork branch
+(`yvf/esp-hal` @ `rcd/esp-radio-0.18-h2-154-rx-fixes`) - the published 0.18.0 crate plus
+those RX-correctness fixes - instead of a vendored source tree. The clean, upstreamable
+form (against current `main`/beta.0) is on the fork's `fix/h2-ieee802154-receive-path`
+branch; the diff and PR write-up are in `docs/upstream-prs/`.
+
+Note: there is **no** ext-address byte-order patch. That symptom (unicast frames never
+matching the HW filter) was an `esp-rs/openthread` bug - its platform shim decoded the
+little-endian ext address with `from_be_bytes` - fixed upstream in openthread PR #84.
+Stock esp-radio uses `to_le_bytes` (esp-hal #5314), which is spec-correct, so with
+openthread >= #84 (we pin a recent `main`) the filter matches without any esp-radio
+change. See `docs/upstream-prs/README.md`.
 
 **Persistence kept off the radio hot path.** The Matter fabric and the OpenThread SRP key
 are flash-backed (`src/matter/kv.rs`, `src/matter/ot_settings.rs`) so pairing survives

@@ -6,11 +6,10 @@
 **Fork branch:** `fix/h2-ieee802154-receive-path` (in `~/github/yanf-esp-hal`), three
 commits - one per fix group below.
 
-> Companion to the ext-address filter fix
-> (`01-ieee802154-ext-addr-filter-byte-order.md`). Both are required for OpenThread
-> to attach and operate on ESP32-H2; they are independent and can be reviewed
-> separately. This PR makes the receiver reliably complete, deliver, and
-> acknowledge frames; the companion PR makes it accept the unicast frames.
+> Standalone esp-radio PR. (An earlier draft paired this with an ext-address
+> filter "fix"; that turned out to be an `esp-rs/openthread` bug, fixed upstream in
+> openthread PR #84 - stock esp-radio byte order is correct - so this receive-path
+> PR is the only esp-radio change. See the README.)
 >
 > **Builds on [#5650]** (already in `main`), which fixed the FCF octet offset in
 > `frame_is_ack_required`/`frame_get_version`. Because those helpers now read the
@@ -110,15 +109,15 @@ configuration; CSL/link-metrics would need IEs and are out of scope here.
 
 ## How to reproduce / verify
 
-Bring up OpenThread on an ESP32-H2 via `esp-radio` + `esp-rs/openthread` (plus
-the companion ext-addr fix), apply a valid dataset with a Thread 1.3 border
-router in range, `enable_thread(true)`.
+Bring up OpenThread on an ESP32-H2 via `esp-radio` + `esp-rs/openthread`
+(>= PR #84, so the ext-address filter matches), apply a valid dataset with a
+Thread 1.3 border router in range, `enable_thread(true)`.
 
 - **Before:** `RxSfdDone` fires continuously with `rx_abort = SfdTimeout`,
   `RxDone` essentially never; role stuck `Detached`. If patched only up to (2),
   the node attaches but a Thread 1.3 parent drops it during operational traffic
   ("Duplicated" / link-failure churn) because v2 frames go unacknowledged.
-- **After (this PR + the ext-addr fix):** `RxDone` fires steadily, frames are
+- **After (this PR, with openthread >= #84):** `RxDone` fires steadily, frames are
   delivered, v2 frames are acknowledged, and the node reaches `Child` and
   completes CASE/SRP. **Verified on ESP32-H2 hardware.**
 
@@ -135,7 +134,8 @@ steady; (2) is required for ACK-bearing unicast frames to be delivered at all;
 - **We did NOT touch coexistence PTI.** An earlier iteration raised the active
   TX/RX coex priority from `IEEE802154_LOW` to `IEEE802154_HIGH` to fight the
   `SfdTimeout` flood. That turned out to be **unnecessary** once the real RX bugs
-  (the ext-addr filter and the abort-event re-arm) were fixed, and raising it
+  (the openthread ext-address decode, fixed upstream in #84, and the abort-event
+  re-arm here) were fixed, and raising it
   **starved concurrent BLE** advertising/commissioning on the H2's shared radio.
   The PTI values are left at their upstream defaults.
 - **`AckTxDone` on H2.** We did not root-cause *why* `AckTxDone` does not fire for

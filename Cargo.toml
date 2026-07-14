@@ -47,6 +47,13 @@ embassy-time     = { version = "0.5" }
 embassy-sync     = { version = "0.7" }
 embassy-futures  = { version = "0.1" }
 
+# edge-nal <-> openthread adapter. openthread 0.2 removed its own edge-nal
+# integration (enal.rs, PR #83) and it was re-homed in this dedicated crate; it
+# provides `OtUdpStack`/`OtUdpSocket` (edge-nal UdpBind/UdpConnect over openthread's
+# native UdpSocket) that src/matter/net.rs plugs into rs-matter-stack's NetStack.
+# Targets edge-nal 0.7 + openthread 0.2, matching rs-matter-stack master.
+edge-nal-openthread = "0.1"
+
 log            = "0.4"
 # `nb::block!` to drive esp-hal's non-blocking one-shot ADC reads in the EMF sensor.
 nb             = "1.1"
@@ -74,9 +81,13 @@ rand_core_06   = { package = "rand_core", version = "0.6", default-features = fa
 subtle         = { version = "2.6", default-features = false }
 
 # Thread via OpenThread (prebuilt lib for riscv32imac-unknown-none-elf - no C build).
-# H2 802.15.4 radio supported out of the box via the esp-radio feature.
-openthread = { git = "https://github.com/esp-rs/openthread", features = [
-    "esp-radio", "udp", "srp", "dns-client", "edge-nal", "isupper", "log",
+# H2 802.15.4 radio supported out of the box via the esp-radio feature. Declared as
+# the published 0.2 crate but redirected to a pinned esp-rs/openthread `main` rev via
+# [patch.crates-io] below (keeps post-0.2.0 RX fixes: #95 rx_on_idle receive loop,
+# #99 native multicast, #103 Thread 1.4); the patch also unifies edge-nal-openthread's
+# `openthread = "0.2"` onto the same git rev.
+openthread = { version = "0.2", features = [
+    "esp-radio", "udp", "srp", "dns-client", "isupper", "log",
 ] }
 # C-lib shims OpenThread needs (utoa/strtoul) in no_std.
 tinyrlibc  = { version = "0.5", default-features = false, features = ["utoa", "strtoul"] }
@@ -98,13 +109,14 @@ trouble-host = { version = "0.6", features = ["default-packet-pool-mtu-255", "de
 # Since the TEST pairing credentials are fixed and known, we print them ourselves at
 # startup (see matter::stack) instead of relying on rs-matter's QR/PairingCode logging.
 # Re-enable only if you also enlarge the stack headroom (shrink the heap/bump statics).
-rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next", default-features = false, features = ["rustcrypto", "alloc"] }
+rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", rev = "807d4ec2c7eeebd1a4522b40d140c8e5cd8e2831", default-features = false, features = ["rustcrypto", "alloc"] } # master (edge-nal 0.7 + rs-matter 0.2)
 
-# rs-matter-stack consumes rs-matter from crates.io; redirect both to the
-# coordinated `sysgrok` forks (next). Patches only take effect from the root crate.
 [patch.crates-io]
-rs-matter       = { git = "https://github.com/sysgrok/rs-matter",       branch = "next" }
-rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
+# openthread is git-only (0.2.0 is published but we want a pinned esp-rs/openthread
+# `main` rev for the post-0.2.0 RX fixes). This redirect also makes edge-nal-openthread's
+# crates.io `openthread = "0.2"` requirement resolve onto the same git rev, so there is a
+# single openthread in the graph. Bump this rev to advance openthread.
+openthread      = { git = "https://github.com/esp-rs/openthread", rev = "e4d27b39f01563c98fd1e88ab2fa9799a1ae26fe" }
 # ccm 0.4.4 (pulled by `ieee802154` 0.6.1 -> esp-radio's 802.15.4 AES-CCM) pins
 # `subtle = "=2.4"` exactly, which collides with rs-matter's `subtle ^2.6`. No public
 # ccm 0.4.x relaxes that pin (0.5.0+ do, but are semver-incompatible with ieee802154's
@@ -112,11 +124,16 @@ rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch =
 # (subtle 2.4->2.6 is API-compatible for ccm's constant-time tag compare; ccm 0.5.0 uses
 # the same). subtle then unifies to 2.6.1. See docs/no-std-plan.md.
 ccm             = { git = "https://github.com/yvf/AEADs", rev = "790a0a5d397afc907d80c513013d1b13f90ccab9" } # branch: ccm-0.4.4-relax-subtle
-# esp-radio 0.18.0 + ESP32-H2 802.15.4 RX fixes, consumed from the yvf/esp-hal fork
-# (branch rcd/esp-radio-0.18-h2-154-fixes) instead of a vendored source tree. The
-# clean upstreamable form is on the fork's fix/* beta.0 branches; this 0.18.0 branch
-# lets our ^0.18-pinned tree consume the fixes without an esp-radio 1.0 migration.
-esp-radio       = { git = "https://github.com/yvf/esp-hal", rev = "4b0e83234de83bf5fda9f2471bb12c9b2497d74b" } # branch: rcd/esp-radio-0.18-h2-154-fixes
+# esp-radio 0.18.0 + ESP32-H2 802.15.4 RECEIVE-PATH fixes, consumed from the
+# yvf/esp-hal fork instead of a vendored source tree. This 0.18.0 branch lets our
+# ^0.18-pinned tree consume the fixes without an esp-radio 1.0 migration; the clean
+# upstreamable form is on the fork's fix/h2-ieee802154-receive-path beta.0 branch.
+# NOTE: the ext-address filter byte-order patch was DROPPED here. It compensated for a
+# bug in the esp-rs/openthread platform shim (decoded the LE ext address as from_be);
+# openthread PR #84 fixed the shim to decode little-endian (the spec, matching stock
+# esp-radio's ext_addr.to_le_bytes() / esp-hal #5314), so stock byte order is now
+# correct and a to_be_bytes patch would re-reverse it. Requires openthread >= #84.
+esp-radio       = { git = "https://github.com/yvf/esp-hal", rev = "81b88cfe547f5f1f6af254e5cec47a70bc978d9e" } # branch: rcd/esp-radio-0.18-h2-154-rx-fixes
 
 [profile.dev]
 opt-level = "z"   # esp-hal: debug is too slow; always optimize a little
