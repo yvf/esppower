@@ -17,7 +17,7 @@ harness = false
 # All esp crates are pinned (via [patch] below) to esp-hal rev 10e48dd - the last commit
 # where esp-radio is still 0.18 AND has the #5650 FCF-offset fix - matching the
 # rs-matter-embassy esp example. openthread/openthread-sys/mbedtls-rs-sys track esp-rs
-# `main`. See docs/upstream-prs/ and the plan.
+# `main`. See docs/no-std-plan.md.
 [dependencies]
 esp-hal       = { version = "~1.1", features = ["esp32h2", "log-04", "unstable", "exception-handler"] }
 esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"] }

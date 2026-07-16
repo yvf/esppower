@@ -73,7 +73,6 @@ Host prerequisites are listed in [`docs/no-std-plan.md`](docs/no-std-plan.md).
 - [`docs/matter_device_choices.md`](docs/matter_device_choices.md) - the HomeKit / Matter device model
 - [`docs/phase4b-glue-design.md`](docs/phase4b-glue-design.md) - the Matter transport layer design
 - [`emf_sensor/`](emf_sensor/) - the custom power-sensor board and detection approach
-- [`docs/upstream-prs/`](docs/upstream-prs/) - fixes to the ESP32-H2 802.15.4 radio driver
 
 ## Status
 
