@@ -7,14 +7,14 @@
 //! actuation is owned by the autonomous [`Controller`](crate::controller); this hook only
 //! requests a cycle and mirrors the controller's state to HomeKit via [`crate::link`].
 
-use rs_matter_stack::matter::dm::clusters::app::on_off::{
+use rs_matter_embassy::matter::dm::clusters::app::on_off::{
     EffectVariantEnum, OnOffHooks, OutOfBandMessage, StartUpOnOffEnum,
 };
-use rs_matter_stack::matter::dm::clusters::decl::on_off as on_off_cluster;
-use rs_matter_stack::matter::dm::Cluster;
-use rs_matter_stack::matter::error::Error;
-use rs_matter_stack::matter::tlv::Nullable;
-use rs_matter_stack::matter::with;
+use rs_matter_embassy::matter::dm::clusters::decl::on_off as on_off_cluster;
+use rs_matter_embassy::matter::dm::Cluster;
+use rs_matter_embassy::matter::error::Error;
+use rs_matter_embassy::matter::tlv::Nullable;
+use rs_matter_embassy::matter::with;
 
 use crate::link;
 

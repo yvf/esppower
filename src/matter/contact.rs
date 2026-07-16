@@ -9,13 +9,13 @@
 //! background `run` to push a subscription report the instant the sensed state changes, so
 //! HomeKit raises its trip alert without waiting for a poll.
 
-use rs_matter_stack::matter::dm::clusters::decl::boolean_state;
-use rs_matter_stack::matter::dm::{
+use rs_matter_embassy::matter::dm::clusters::decl::boolean_state;
+use rs_matter_embassy::matter::dm::{
     Cluster, Dataver, Handler, HandlerContext, MatchContext, NonBlockingHandler, ReadContext,
     ReadReply,
 };
-use rs_matter_stack::matter::error::Error;
-use rs_matter_stack::matter::with;
+use rs_matter_embassy::matter::error::Error;
+use rs_matter_embassy::matter::with;
 
 use crate::link;
 

@@ -1,24 +1,13 @@
-//! Matter integration glue (Phase 4b): adapters feeding rs-matter-stack's
-//! `PreexistingWireless` from our openthread (Thread) + trouble (BLE) transports.
-//! See docs/phase4b-glue-design.md. Built incrementally; not yet wired into main.
-#![allow(dead_code)]
+//! Matter-over-Thread integration, built on `rs-matter-embassy`.
+//!
+//! `rs-matter-embassy`'s `EmbassyThreadMatterStack` + `EspThreadDriver` provide the whole
+//! transport (openthread + esp-radio + trouble BLE + edge-nal-openthread + KV-backed
+//! persistence, non-concurrent BLE-commission then Thread). This module supplies only the
+//! device model - the 2-endpoint node (contact sensor + reset plug) and its handlers - and
+//! the run entry point. See docs/no-std-plan.md.
 
 mod contact;
-mod gatt;
-mod kv;
-mod mdns;
-mod net;
-mod netctl;
-mod netif;
-mod ot_settings;
 mod plug;
 mod stack;
 
-pub use gatt::OtGattPeripheral;
-pub use kv::wipe_pairing_data;
-pub use ot_settings::FlashSettings;
-pub use mdns::OtMdns;
-pub use net::OtNetStack;
-pub use netctl::OtNetCtl;
-pub use netif::OtNetif;
 pub use stack::run_matter;

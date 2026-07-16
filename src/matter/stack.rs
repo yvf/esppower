@@ -1,57 +1,68 @@
-//! Phase 4b (6/6): assemble the Matter stack and run it.
+//! Assemble and run the Matter-over-Thread stack on `rs-matter-embassy`.
 //!
-//! Builds a `ThreadMatterStack` and runs it via `run_preex`, feeding our five
-//! openthread/trouble adapters. Auto-advertises BLE for commissioning and prints
-//! the pairing QR/code; once commissioned, operates over Thread.
+//! `EmbassyThreadMatterStack` + `EspThreadDriver` provide the whole transport (openthread +
+//! esp-radio + trouble BLE + edge-nal-openthread + KV-backed persistence, non-concurrent:
+//! BLE while un-commissioned, then Thread-only). This module supplies only the device model
+//! - the 2-endpoint node (contact sensor + reset plug) - plus persistence over the `nvs`
+//! flash partition, a GPIO5 factory-reset button, and the commissioning-QR print.
 //!
-//! Uses the rs-matter TEST device credentials + a no-persistence KV - enough to
-//! commission with chip-tool / for bring-up. Real DAC + a flash-backed KV come
-//! later. Port of rs-matter-stack `examples/light.rs`.
+//! Ports the openthread/trouble hand-rolled glue (deleted) to ivmarkov's blessed stack;
+//! modelled on rs-matter-embassy `examples/esp/{light_thread,light_wifi_persistent}.rs`.
 
+use core::borrow::BorrowMut;
+use core::pin::pin;
+
+use embassy_embedded_hal::adapter::BlockingAsync;
+use embassy_futures::select::{select, Either};
 use embassy_time::{Duration, Timer};
 
-use esp_radio::ble::controller::BleConnector;
+use esp_bootloader_esp_idf::partitions::{
+    read_partition_table, DataPartitionSubType, PartitionType, PARTITION_TABLE_MAX_LEN,
+};
+use esp_hal::peripherals::{BT, FLASH, GPIO5, IEEE802154};
+use esp_hal::rng::Rng;
+use esp_storage::FlashStorage;
 
-use openthread::OpenThread;
-use trouble_host::prelude::ExternalController;
-
-use rs_matter_stack::matter::crypto::{default_crypto, Crypto};
-use rs_matter_stack::matter::dm::clusters::app::on_off;
-use rs_matter_stack::matter::dm::clusters::app::on_off::OnOffHooks as _; // for ::CLUSTER
-use rs_matter_stack::matter::dm::clusters::desc::{ClusterHandler as _, DescHandler};
-use rs_matter_stack::matter::dm::devices::test::{
+use rs_matter_embassy::matter::crypto::{default_crypto, Crypto};
+use rs_matter_embassy::matter::dm::clusters::app::on_off::{self, OnOffHooks as _};
+use rs_matter_embassy::matter::dm::clusters::basic_info::BasicInfoConfig;
+use rs_matter_embassy::matter::dm::clusters::desc::{ClusterHandler as _, DescHandler};
+use rs_matter_embassy::matter::dm::devices::test::{
     DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM, TEST_DEV_DET,
 };
-use rs_matter_stack::matter::dm::{
+use rs_matter_embassy::matter::dm::{
     Async, Dataver, DeviceType, EmptyHandler, Endpoint, EpClMatcher, Node,
 };
-use rs_matter_stack::matter::error::{Error, ErrorCode};
-use rs_matter_stack::matter::pairing::qr::{
+use rs_matter_embassy::matter::pairing::qr::{
     no_optional_data, CommFlowType, NoOptionalData, Qr, QrPayload, QrTextType,
 };
-use rs_matter_stack::matter::pairing::DiscoveryCapabilities;
-use super::kv::FlashKv;
-use rs_matter_stack::matter::utils::init::InitMaybeUninit;
-use rs_matter_stack::matter::{clusters, devices};
-use rs_matter_stack::wireless::{PreexistingWireless, ThreadMatterStack};
+use rs_matter_embassy::matter::pairing::DiscoveryCapabilities;
+use rs_matter_embassy::matter::persist::KvBlobStore;
+use rs_matter_embassy::matter::utils::init::InitMaybeUninit;
+use rs_matter_embassy::matter::{clusters, devices, BasicCommData};
+use rs_matter_embassy::persist::SeqMapKvBlobStore;
+use rs_matter_embassy::wireless::esp::EspThreadDriver;
+use rs_matter_embassy::wireless::{EmbassyThread, EmbassyThreadMatterStack};
 
 use static_cell::StaticCell;
 
 use super::contact::{ContactHandler, CONTACT_CLUSTER, CONTACT_ENDPOINT_ID};
 use super::plug::RcdPlugHooks;
-use super::{OtGattPeripheral, OtMdns, OtNetCtl, OtNetStack, OtNetif};
 
 /// Bump-allocator arena for the rs-matter-stack run futures (static RAM, not heap).
-/// Tune up if init panics for lack of space. (light.rs uses 23500.)
-const BUMP_SIZE: usize = 23500;
+/// Tune up if init panics for lack of space. (rs-matter-embassy examples use 25000.)
+const BUMP_SIZE: usize = 25000;
 
-/// Endpoint 2 - On/Off Plug-In Unit (the RCD resetter). Endpoint 1 is the contact
-/// sensor (the primary tile - see `docs/matter_device_choices.md`); endpoint 0 is the root.
+/// Fixed commissioning discriminator - we use the rs-matter TEST credentials, so it is
+/// constant and the printed QR is stable across boots.
+const DISCRIMINATOR: u16 = 3840;
+
+/// Endpoint 2 - On/Off Plug-In Unit (the RCD resetter). Endpoint 1 is the contact sensor
+/// (the primary tile - see `docs/matter_device_choices.md`); endpoint 0 is the root.
 const PLUG_ENDPOINT_ID: u16 = 2;
 
-/// On/Off Plug-In Unit device type (Matter Device Library `0x010A`). Gives HomeKit a
-/// tappable outlet tile (vs the misleading lightbulb of On/Off Light). See
-/// docs/matter_device_choices.md.
+/// On/Off Plug-In Unit device type (Matter Device Library `0x010A`) - a tappable outlet
+/// tile (vs the misleading lightbulb of On/Off Light). See docs/matter_device_choices.md.
 const DEV_TYPE_ON_OFF_PLUG_IN_UNIT: DeviceType = DeviceType {
     dtype: 0x010A,
     drev: 3,
@@ -64,22 +75,19 @@ const DEV_TYPE_CONTACT_SENSOR: DeviceType = DeviceType {
     drev: 2,
 };
 
-static MATTER_STACK: StaticCell<ThreadMatterStack<BUMP_SIZE>> = StaticCell::new();
-
-/// Scratch buffer for rendering the commissioning QR code at startup. Held in a
-/// static (not on the tight main-task stack) and used once before the stack runs.
-static QR_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+/// Basic device info: the rs-matter TEST details plus a session-active interval hint.
+const TEST_BASIC_INFO: BasicInfoConfig = BasicInfoConfig {
+    sai: Some(500),
+    ..TEST_DEV_DET
+};
 
 /// The Matter node (docs/matter_device_choices.md):
 ///   EP0 - Root Node (system clusters)
 ///   EP1 - Contact Sensor: downstream mains presence (Boolean State) - the PRIMARY tile
 ///   EP2 - On/Off Plug-In Unit: the RCD resetter (tap -> actuator reset cycle)
-///
-/// The contact sensor is listed first (and is the lowest application endpoint) so Apple
-/// Home makes it the primary accessory tile; the plug is the secondary tile.
 const NODE: Node = Node {
     endpoints: &[
-        ThreadMatterStack::<0, ()>::root_endpoint(),
+        EmbassyThreadMatterStack::<0, ()>::root_endpoint(),
         Endpoint::new(
             CONTACT_ENDPOINT_ID,
             devices!(DEV_TYPE_CONTACT_SENSOR),
@@ -93,9 +101,13 @@ const NODE: Node = Node {
     ],
 };
 
-/// A rand_core 0.6 `CryptoRngCore` over esp-hal's (0.9) Rng, for rs-matter's crypto.
+static MATTER_STACK: StaticCell<EmbassyThreadMatterStack<BUMP_SIZE, ()>> = StaticCell::new();
+static QR_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+
+/// A rand_core 0.6 `CryptoRngCore` over esp-hal's (0.9) digital `Rng`, for rs-matter's
+/// crypto. Uses the digital RNG (no ADC1) so ADC1 stays free for the EMF sensor.
 #[derive(Clone, Copy)]
-struct EspRng(esp_hal::rng::Rng);
+struct EspRng(Rng);
 
 impl rand_core_06::RngCore for EspRng {
     fn next_u32(&mut self) -> u32 {
@@ -118,179 +130,160 @@ impl rand_core_06::RngCore for EspRng {
 }
 impl rand_core_06::CryptoRng for EspRng {}
 
-/// Build and run the Matter-over-Thread stack until commissioning + operation are
-/// torn down. `ot` must be the initialized OpenThread instance; `controller` the
-/// BLE controller; `eui64` the IEEE EUI-64 (hostname + BLE address material).
+/// Build and run the Matter-over-Thread stack. Never returns during normal operation:
+/// on a 3 s hold of the GPIO5 factory-reset button it wipes the persisted pairing and
+/// reboots; on an unexpected stack exit it also reboots (the controller safety task runs
+/// independently and is unaffected).
 pub async fn run_matter(
-    ot: OpenThread<'static>,
-    bt: esp_hal::peripherals::BT<'static>,
+    ieee802154: IEEE802154<'static>,
+    bt: BT<'static>,
+    flash: FLASH<'static>,
+    reset_pin: GPIO5<'static>,
     eui64: [u8; 8],
-    rng: esp_hal::rng::Rng,
-) -> Result<(), Error> {
-    // -- One-time init - MUST stay outside the restart loop below -----------------
-    // A `StaticCell` can be initialized only ONCE (a second `init_with` panics), and the
-    // Matter stack is a large fixed static that the supervised loop deliberately REUSES:
-    // `stack.run()` re-initializes its own transport and resets its bump allocator on
-    // every call, so a single instance is driven across restarts. Hence this init, the
-    // device-model handlers, and the one-shot persistence load all live outside the loop.
-    let stack = MATTER_STACK
-        .uninit()
-        .init_with(ThreadMatterStack::init(&TEST_DEV_DET, TEST_DEV_COMM, &TEST_DEV_ATT));
+) -> ! {
+    let crypto = default_crypto(EspRng(Rng::new()), DAC_PRIVKEY);
+    let mut weak_rand = crypto.weak_rand().unwrap();
 
-    let crypto = default_crypto(EspRng(rng), DAC_PRIVKEY);
-    let mut rand = crypto.weak_rand()?;
+    let stack = MATTER_STACK.uninit().init_with(EmbassyThreadMatterStack::init(
+        &TEST_BASIC_INFO,
+        BasicCommData {
+            password: TEST_DEV_COMM.password,
+            discriminator: DISCRIMINATOR,
+        },
+        &TEST_DEV_ATT,
+    ));
 
-    // EP1 - On/Off Plug-In Unit (RCD resetter) and EP2 - Contact Sensor (mains presence).
-    // Built once so their cluster Dataver stays continuous across restarts; both bridge to
-    // the autonomous controller via `crate::link` (On -> run a reset cycle; state pushed back).
+    // EP2 - On/Off Plug-In Unit (RCD resetter) and EP1 - Contact Sensor (mains presence).
+    // Both bridge to the autonomous controller via `crate::link`.
     let plug = on_off::OnOffHandler::new_standalone(
-        Dataver::new_rand(&mut rand),
+        Dataver::new_rand(&mut weak_rand),
         PLUG_ENDPOINT_ID,
         RcdPlugHooks,
     );
-    let contact = ContactHandler::new(Dataver::new_rand(&mut rand));
+    let contact = ContactHandler::new(Dataver::new_rand(&mut weak_rand));
 
-    // Flash-backed KV over the `nvs` partition (fabrics + Thread networks store), built
-    // ONCE: `FlashKv::new()` claims a module `StaticCell` buffer, so calling it twice
-    // panics. `startup` loads the persisted fabric into the (reused) stack - deciding the
-    // mode - and the same store is then wrapped as the KV and shared with every run below
-    // by reference (`&kv`; `impl KvBlobStoreAccess for &T`). On a restart the fabric is
-    // already loaded, so this is not repeated - the device stays operational over Thread.
-    let mut store = FlashKv::new()?;
-    let commissioned_before = {
-        stack.startup(&crypto, &mut store).await?;
-        stack.matter().is_commissioned()
-    };
+    let handler = EmptyHandler
+        .chain(
+            EpClMatcher::new(Some(PLUG_ENDPOINT_ID), Some(RcdPlugHooks::CLUSTER.id)),
+            on_off::HandlerAsyncAdaptor(&plug),
+        )
+        .chain(
+            EpClMatcher::new(Some(PLUG_ENDPOINT_ID), Some(DescHandler::CLUSTER.id)),
+            Async(DescHandler::new(Dataver::new_rand(&mut weak_rand)).adapt()),
+        )
+        .chain(
+            EpClMatcher::new(Some(CONTACT_ENDPOINT_ID), Some(CONTACT_CLUSTER.id)),
+            Async(&contact),
+        )
+        .chain(
+            EpClMatcher::new(Some(CONTACT_ENDPOINT_ID), Some(DescHandler::CLUSTER.id)),
+            Async(DescHandler::new(Dataver::new_rand(&mut weak_rand)).adapt()),
+        );
+
+    // Flash-backed KV over the `nvs` partition (fabrics + Thread networks + the OpenThread
+    // SRP key, so pairing and the SRP identity survive reboot). `SeqMapKvBlobStore` is
+    // rs-matter-embassy's sequential-storage NOR-flash store.
+    let mut pt_buf = [0u8; PARTITION_TABLE_MAX_LEN];
+    let mut store = get_persistent_store(flash, &mut pt_buf[..]);
+    stack.startup(&crypto, &mut store).await.unwrap();
     let kv = stack.matter().kv(store);
 
-    if commissioned_before {
-        // Already paired: the non-concurrent run() skips BLE and operates over Thread.
-        // Do NOT print the QR / commissioning credentials - nothing is listening on BLE.
+    if stack.is_commissioned() {
         log::info!("[matter] ===== MODE: OPERATIONAL (saved pairing loaded) =====");
-        log::info!("[matter] Operating over Thread; BLE is OFF. Hold the reset button 3s to re-pair.");
+        log::info!("[matter] Operating over Thread; BLE is OFF. Hold the GPIO5 button 3s to re-pair.");
     } else {
-        // Not paired: BLE commissioning window is open. Print the pairing info + QR.
-        // (We build with rs-matter's `log` feature OFF - its QR/PairingCode print pairs
-        // with a stack-overflowing attribute-error Debug format - so we print it ourselves.
-        // These are constant because we use the rs-matter TEST device credentials.)
         log::info!("[matter] ===== MODE: COMMISSIONING (no saved pairing) =====");
         log::info!("[matter] Commissioning open over BLE - TEST credentials:");
-        log::info!("[matter]   discriminator : 3840");
+        log::info!("[matter]   discriminator : {DISCRIMINATOR}");
         log::info!("[matter]   passcode      : 20202021");
         log::info!("[matter]   manual code   : 3497-011-2332");
-        log::info!("[matter]   chip-tool: pairing ble-thread <node-id> hex:<dataset> 20202021 3840");
         print_commissioning_qr();
     }
 
-    // BLE address: static random, derived from the EUI-64. A static random address
-    // (Core spec Vol 6, Part B sec 1.3.2.1) MUST have its two most-significant bits = 0b11.
-    // BdAddr is little-endian on the HCI wire, so the MSB is byte 5 - set 0xC0 there,
-    // NOT byte 0 (the LSB), or the controller rejects advertising with HCI error 0x12.
-    let mut addr: [u8; 6] = eui64[2..8].try_into().unwrap_or([0xff; 6]);
-    addr[5] |= 0xc0; // two MSBs = 0b11 -> static random
+    // Run Matter, racing a factory-reset hold on GPIO5. `stack.run` drives the whole
+    // non-concurrent flow (BLE commission -> Thread operate) and normally never returns.
+    // The inner scope ends the `&kv` borrow (held by the run future) before the possible
+    // `reset_persist(kv)`, which moves `kv`.
+    let do_reset = {
+        let matter = pin!(stack.run(
+            EmbassyThread::new(
+                EspThreadDriver::new(ieee802154, bt),
+                crypto.rand().unwrap(),
+                eui64,
+                &kv,
+                stack,
+                true, // static-random BLE address
+            ),
+            &crypto,
+            (NODE, handler),
+            &kv,
+            (),
+        ));
+        match select(matter, pin!(wait_reset_hold(reset_pin))).await {
+            Either::First(res) => {
+                log::warn!("[matter] stack.run returned ({res:?}) - rebooting");
+                false
+            }
+            Either::Second(()) => true,
+        }
+    };
 
-    // -- Supervised run loop ------------------------------------------------------
-    // `stack.run()` should not return during normal operation, but if it ever exits - Ok,
-    // or Err from an unforeseen internal/transport failure - restart it rather than leave
-    // Matter dead until the next reboot. (A border-router outage alone does NOT trigger
-    // this: its report/reconnect failures are handled internally.) The controller's safety
-    // loop runs in a separate task and is unaffected. Only the values `run()` consumes by
-    // value are rebuilt per iteration.
-    let mut bt = Some(bt);
+    if do_reset {
+        log::warn!("[matter] Factory reset: wiping persisted pairing and rebooting");
+        let _ = stack.matter().reset_persist(kv).await;
+    }
+    esp_hal::system::software_reset()
+}
+
+/// Complete after the GPIO5 momentary button (active-low, internal pull-up) is held low
+/// continuously for 3 s. Polling debounces naturally.
+async fn wait_reset_hold(pin: GPIO5<'static>) {
+    use esp_hal::gpio::{Input, InputConfig, Pull};
+
+    let button = Input::new(pin, InputConfig::default().with_pull(Pull::Up));
+    const POLL_MS: u64 = 50;
+    const HOLD_MS: u64 = 3000;
+    let mut held_ms: u64 = 0;
     loop {
-        // Rebuild what `run()` takes by value and can't be shared: the GATT peripheral
-        // (BLE) and the handler chain. (The KV is build-once and shared by reference;
-        // `stack`, `crypto`, `plug`/`contact` live outside the loop.) Wrapped in an async
-        // block so a setup failure is caught by the loop below rather than escaping.
-        let outcome: Result<(), Error> = async {
-            // Only initialize BLE when a commissioning window is actually needed. Once
-            // commissioned, the non-concurrent stack never calls Gatt::run, so building a
-            // controller would just spin up an unused BLE task - and each `BleConnector`
-            // re-init on a restart LEAKS that task's heap-allocated stack (eventually OOM,
-            // as an error-injection test showed). So: a real controller only while
-            // un-commissioned; otherwise none (BLE stays fully off).
-            let gatt = if stack.matter().is_commissioned() {
-                OtGattPeripheral::without_controller(addr)
-            } else {
-                // Real peripheral the first time; on a (rare) commissioning-phase restart
-                // the previous connector was already dropped, so `steal()` can't alias a
-                // live one.
-                let device = bt
-                    .take()
-                    .unwrap_or_else(|| unsafe { esp_hal::peripherals::BT::steal() });
-                let controller: ExternalController<_, 1> = ExternalController::new(
-                    BleConnector::new(device, Default::default())
-                        .map_err(|_| Error::from(ErrorCode::NoNetworkInterface))?,
-                );
-                OtGattPeripheral::new(controller, addr)
-            };
-
-            let mut rand = crypto.weak_rand()?;
-            let handler = EmptyHandler
-                .chain(
-                    EpClMatcher::new(Some(PLUG_ENDPOINT_ID), Some(RcdPlugHooks::CLUSTER.id)),
-                    on_off::HandlerAsyncAdaptor(&plug),
-                )
-                .chain(
-                    EpClMatcher::new(Some(PLUG_ENDPOINT_ID), Some(DescHandler::CLUSTER.id)),
-                    Async(DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
-                )
-                .chain(
-                    EpClMatcher::new(Some(CONTACT_ENDPOINT_ID), Some(CONTACT_CLUSTER.id)),
-                    Async(&contact),
-                )
-                .chain(
-                    EpClMatcher::new(Some(CONTACT_ENDPOINT_ID), Some(DescHandler::CLUSTER.id)),
-                    Async(DescHandler::new(Dataver::new_rand(&mut rand)).adapt()),
-                );
-
-            // Non-concurrent (BLE-only until paired, then Thread-only) - NOT run_coex.
-            // The H2's single 2.4 GHz radio can't run BLE + 802.15.4 reliably at once, so
-            // `run` advertises SupportsConcurrentConnection=false and drops BLE once a
-            // fabric exists; the deferred ConnectNetwork is replayed via OtNetCtl::connect.
-            // `&kv` (not `kv`): the KV is owned outside the loop (FlashKv is build-once) and
-            // shared by reference each run.
-            stack
-                .run(
-                    PreexistingWireless::new(
-                        OtNetStack::new(ot.clone()),
-                        OtNetif::new(ot.clone(), eui64),
-                        OtNetCtl::new(ot.clone()),
-                        OtMdns::new(ot.clone(), eui64),
-                        gatt,
-                    ),
-                    &crypto,
-                    (NODE, handler),
-                    &kv,
-                    (),
-                )
-                .await
+        Timer::after(Duration::from_millis(POLL_MS)).await;
+        if button.is_low() {
+            held_ms += POLL_MS;
+            if held_ms >= HOLD_MS {
+                return;
+            }
+        } else {
+            held_ms = 0;
         }
-        .await;
-
-        match outcome {
-            Ok(()) => log::warn!("[matter] stack.run returned unexpectedly - restarting in 2 s"),
-            Err(e) => log::warn!("[matter] Matter stack error ({e:?}) - restarting in 2 s"),
-        }
-        // Brief pause so a hard-failing restart can't spin the CPU; the OpenThread task
-        // keeps the radio serviced in the meantime.
-        Timer::after(Duration::from_secs(2)).await;
     }
 }
 
-/// Render the commissioning QR code (ASCII) plus its text payload to the console.
-///
-/// rs-matter's own `print_standard_qr_code` renders with its internal `info!`, which is
-/// a no-op unless rs-matter's `log` feature is enabled - and we keep that OFF (it pairs
-/// with a deep attribute-error Debug format that overflows the main task stack). So we
-/// build the same standard QR payload from the TEST device credentials and render it with
-/// our own logger. Uses `QrTextType::Ascii` (space / `#` blocks) for the widest console
-/// font compatibility, and also prints the `MT:...` payload string to paste into a QR-code
-/// generator app if the ASCII art doesn't scan in a given terminal.
+/// KV BLOB store persisting in the first `nvs` data partition of the on-board NOR flash
+/// (located at runtime via the esp-idf partition table). Mirrors the rs-matter-embassy
+/// persistent example.
+fn get_persistent_store<'d>(
+    flash: FLASH<'d>,
+    mut buf: impl BorrowMut<[u8]>,
+) -> impl KvBlobStore + 'd {
+    let mut flash = FlashStorage::new(flash);
+    let pt_buf = &mut buf.borrow_mut()[..PARTITION_TABLE_MAX_LEN];
+    let pt = read_partition_table(&mut flash, pt_buf).unwrap();
+    let nvs = pt
+        .find_partition(PartitionType::Data(DataPartitionSubType::Nvs))
+        .unwrap()
+        .unwrap();
+    let start = nvs.offset();
+    let end = nvs.offset() + nvs.len();
+    log::info!("[matter] Using NVS partition at {start:#x}..{end:#x}");
+    // `SeqMapKvBlobStore` needs an async MultiwriteNorFlash; esp-storage's FlashStorage is
+    // blocking, so wrap it in `BlockingAsync`.
+    SeqMapKvBlobStore::new(BlockingAsync::new(flash), start..end)
+}
+
+/// Render the commissioning QR code (ASCII) plus its text payload. We print it ourselves
+/// (rather than via rs-matter's `log`) from the fixed TEST credentials.
 fn print_commissioning_qr() {
     let buf = QR_BUF.init([0u8; 1024]);
 
-    // Standard commissioning flow, BLE discovery - mirrors `Matter::standard_qr_payload`.
     let payload = QrPayload::new_from_basic_info(
         DiscoveryCapabilities::BLE,
         CommFlowType::Standard,
@@ -307,14 +300,9 @@ fn print_commissioning_qr() {
         }
     };
 
-    // Text payload - paste into any QR-code generator app if the ASCII QR below doesn't
-    // render / scan in your console font.
     log::info!("[matter]   QR payload (paste into a QR-code generator app): {text}");
 
-    // `as_str` returned the remaining buffer; split it for the QR encoder's scratch
-    // (`tmp_buf`) and output matrix (`out_buf`). `tmp_buf` is reused per-line for rendering.
     let (tmp_buf, out_buf) = rest.split_at_mut(rest.len() / 2);
-
     match Qr::compute(text, tmp_buf, out_buf) {
         Ok(qr) => {
             const BORDER: u8 = 4;

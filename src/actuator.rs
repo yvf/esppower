@@ -18,7 +18,6 @@
 //! re-applies the new pulse width.
 
 use embassy_time::{Duration, Timer};
-use esp_hal::clock::Clocks;
 use esp_hal::gpio::DriveMode;
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, LSClockSource, TimerIFace};
@@ -41,14 +40,14 @@ use crate::config::{
 static LEDC_CELL: StaticCell<Ledc<'static>> = StaticCell::new();
 static TIMER_CELL: StaticCell<timer::Timer<'static, LowSpeed>> = StaticCell::new();
 
-/// On ESP32-H2, `set_global_slow_clock(APBClk)` selects `ledc_sclk_sel = 0`, which is
-/// actually the **32 MHz XTAL** (the H2 LEDC has no real APB source). But esp-hal 1.1
-/// computes the timer divisor from `Clocks::get().apb_clock`, a different value - so
-/// the achieved frequency comes out as `requested * 32 MHz / apb_clock`. On the 96 MHz
-/// preset that is ~1/3 of the requested rate, which pushed every servo pulse past 2 ms
-/// (the actuator pinned fully extended regardless of duty). We pre-scale the requested
-/// frequency by `apb_clock / 32 MHz` so the *achieved* frequency is the true 50 Hz.
-const LEDC_LS_SRC_HZ: u32 = 32_000_000; // H2 XTAL - the real LowSpeed source clock
+// NOTE: esp-hal 1.1 mis-computed the H2 LEDC timer divisor from `Clocks::get().apb_clock`
+// while the real LowSpeed source is the 32 MHz XTAL, so we used to pre-scale the requested
+// frequency by `apb_clock / 32 MHz` to achieve the true 50 Hz. The esp-hal snapshot pinned
+// here (rev 10e48dd) restructured the clock API (`Clocks` is gone), so that workaround was
+// removed and we now request `SERVO_FREQ_HZ` directly. TODO(hw): re-verify on hardware that
+// the achieved LEDC frequency is really 50 Hz (scope the GPIO10 pulse ~1-2 ms); if it is
+// ~1/3, the H2 LEDC clock bug persists and the pre-scale must be reinstated with the new
+// clock accessor.
 
 pub struct Actuator {
     channel: channel::Channel<'static, LowSpeed>,
@@ -65,22 +64,12 @@ impl Actuator {
         let ledc = LEDC_CELL.init(Ledc::new(ledc));
         ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
 
-        // Compensate for esp-hal's H2 LEDC clock mislabelling (see LEDC_LS_SRC_HZ):
-        // ask for a scaled-up frequency so the achieved rate is the real 50 Hz.
-        let apb_hz = Clocks::get().apb_clock.as_hz();
-        let requested_hz =
-            ((SERVO_FREQ_HZ as u64 * apb_hz as u64) / LEDC_LS_SRC_HZ as u64) as u32;
-        info!(
-            "Actuator: apb_clock={} Hz -> requesting LEDC {} Hz to achieve {} Hz",
-            apb_hz, requested_hz, SERVO_FREQ_HZ
-        );
-
         let timer = TIMER_CELL.init(ledc.timer::<LowSpeed>(timer::Number::Timer0));
         timer
             .configure(timer::config::Config {
                 duty: timer::config::Duty::Duty14Bit,
                 clock_source: LSClockSource::APBClk,
-                frequency: Rate::from_hz(requested_hz),
+                frequency: Rate::from_hz(SERVO_FREQ_HZ),
             })
             .map_err(|_| channel::Error::Timer)?;
         let timer: &'static timer::Timer<'static, LowSpeed> = timer;
