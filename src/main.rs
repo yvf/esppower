@@ -29,6 +29,16 @@ mod sensor; // contactless EMF power-presence sensor over ADC1 (GPIO4)
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
+/// Timestamp hook for esp-println's `timestamp` feature: every log line (ours and the
+/// openthread/rs-matter/esp-radio logs) is prefixed with the uptime in milliseconds, so the
+/// reboot-to-operational timeline is measurable. Uses the systimer (works from early boot).
+#[no_mangle]
+extern "Rust" fn _esp_println_timestamp() -> u64 {
+    esp_hal::time::Instant::now()
+        .duration_since_epoch()
+        .as_millis()
+}
+
 /// Heap for the Matter stack + the one alloc-hungry dependency (x509). The reclaimable
 /// second RAM region is added as a separate heap so it is not wasted.
 const HEAP_SIZE: usize = 100 * 1024;

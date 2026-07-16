@@ -185,7 +185,9 @@ pub async fn run_matter(
     // rs-matter-embassy's sequential-storage NOR-flash store.
     let mut pt_buf = [0u8; PARTITION_TABLE_MAX_LEN];
     let mut store = get_persistent_store(flash, &mut pt_buf[..]);
+    log::info!("[matter] Loading persisted state from flash (fabrics + Thread network)...");
     stack.startup(&crypto, &mut store).await.unwrap();
+    log::info!("[matter] Persisted state loaded (commissioned={})", stack.is_commissioned());
     let kv = stack.matter().kv(store);
 
     if stack.is_commissioned() {
@@ -204,6 +206,15 @@ pub async fn run_matter(
     // non-concurrent flow (BLE commission -> Thread operate) and normally never returns.
     // The inner scope ends the `&kv` borrow (held by the run future) before the possible
     // `reset_persist(kv)`, which moves `kv`.
+    if stack.is_commissioned() {
+        log::info!(
+            "[matter] Entering operational run: re-attaching to Thread + re-registering SRP. \
+             Watch for 'Role -> child' then 'Registered SRP host'. Apple Home may report \
+             'No Response' until it re-resolves us via DNS-SD and re-establishes CASE + subscription."
+        );
+    } else {
+        log::info!("[matter] Entering run: advertising BLE for commissioning.");
+    }
     let do_reset = {
         let matter = pin!(stack.run(
             EmbassyThread::new(

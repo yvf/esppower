@@ -24,7 +24,10 @@ esp-rtos      = { version = "0.3", features = ["esp32h2", "esp-radio", "embassy"
 esp-radio     = { version = "0.18", features = ["esp32h2", "ble", "log-04", "unstable"] }
 esp-alloc     = { version = "0.10" }
 esp-backtrace = { version = "0.19", features = ["esp32h2", "panic-handler", "println"] }
-esp-println   = { version = "0.17", features = ["esp32h2", "log-04"] }
+# `timestamp`: prefixes every log line (ours + openthread/rs-matter) with an uptime in ms
+# via the `_esp_println_timestamp` hook we provide in main.rs - lets us measure the
+# reboot-to-operational timeline (Thread attach vs flash load vs waiting for the controller).
+esp-println   = { version = "0.17", features = ["esp32h2", "log-04", "timestamp"] }
 esp-storage   = { version = "0.9", features = ["esp32h2"] }
 esp-bootloader-esp-idf = { version = "0.5", features = ["esp32h2", "log-04"] }
 esp-metadata-generated = { version = "0.4", features = ["esp32h2"] }
