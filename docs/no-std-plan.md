@@ -14,93 +14,130 @@ operation comfortably. (esp-alloc places the heap in the SRAM left over after st
 
 ## The stack (all no-std, target `riscv32imac-unknown-none-elf`, nightly)
 
+The firmware is built on **`rs-matter-embassy`** (ivmarkov's off-the-shelf esp
+Matter-over-Thread integration), which bundles the whole transport. All the `esp-*` crates
+are pinned - via `[patch.crates-io]` in `Cargo.toml` - to a single esp-hal git revision
+(`10e48dd...`), the coordinated stack the `rs-matter-embassy` esp example uses;
+`openthread` / `openthread-sys` / `mbedtls-rs-sys` track `esp-rs` `main`. See "Why these
+exact versions" below.
+
 | Layer      | Crate(s)                                                                            | Notes                                                                                                                  |
 |------------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| HAL / chip | **esp-hal 1.1** (`esp32h2`, `unstable`)                                             | peripherals, ADC, LEDC, GPIO                                                                                           |
-| RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy 0.10/0.8/0.5                     | scheduler + radio glue                                                                                                 |
+| Integration| **rs-matter-embassy** (`esp`,`openthread`,`mbedtls`)                                | `EmbassyThreadMatterStack` + `EspThreadDriver` = the whole Thread+BLE transport + persistence; we supply only the device model |
+| HAL / chip | **esp-hal ~1.1** (`esp32h2`, `unstable`) @ `10e48dd`                                | peripherals, ADC, LEDC, GPIO                                                                                           |
+| RTOS/async | **esp-rtos 0.3** (`esp-radio`,`embassy`) + embassy                                  | scheduler + radio glue                                                                                                 |
 | Heap       | **esp-alloc 0.10**                                                                  | most of the 320 KB SRAM becomes heap                                                                                  |
-| Radio      | **esp-radio 0.18** (`ieee802154` + BLE) - **patched** (fork branch)                 | one crate, both radios + coex. `[patch.crates-io]` to a fork branch that fixes the ESP32-H2 802.15.4 receive path (see `docs/upstream-prs/`).  |
-| Thread     | **openthread 0.2** (pinned esp-rs/openthread `main`): `esp-radio`,`udp`,`srp`,`dns-client` | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; native `UdpSocket` + SRP (Matter's mDNS-over-Thread). edge-nal glue via `edge-nal-openthread`. |
-| BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned, see below                                                                                 |
-| Matter     | **rs-matter 0.2** (`no_std`) + **rs-matter-stack** (edge-nal 0.7)                   | generic stack; edge-nal UDP + a `Gatt`/`ThreadCoex` transport                                                          |
+| Radio      | **esp-radio 0.18** (`ieee802154` + BLE), **stock** @ `10e48dd`                      | one crate, both radios. The `10e48dd` base has esp-radio 0.18 **with #5650** (the FCF-offset fix); no local patch (see below). |
+| Thread     | **openthread 0.2** (pinned esp-rs/openthread `main`)                                | OpenThread C via `openthread-sys`; H2 802.15.4 out of the box; native `UdpSocket` + SRP; edge-nal glue via `edge-nal-openthread`. |
+| BLE host   | **trouble-host 0.6** on esp-radio's BLE controller                                  | GATT server; version-pinned via rs-matter-embassy (bt-hci 0.8), see below                                            |
+| Matter     | **rs-matter 0.2** + **rs-matter-stack 0.1** (edge-nal 0.7), both crates.io          | generic stack under rs-matter-embassy                                                                                  |
 | Boot       | esp-bootloader-esp-idf 0.5, esp-backtrace/println                                   | (`esp-bootloader-esp-idf` = the IDF partition-table/app-descriptor format, not the IDF runtime)                       |
 
-## The transport layer (custom glue)
+## What we write vs. what rs-matter-embassy provides
 
-rs-matter-stack is generic over its network and BLE transports but ships no no-std ESP
-implementation - the openthread/trouble examples are Thread-only / BLE-only, and
-rs-matter-stack's own examples are std/Linux. So the core custom code (`src/matter/`) is
-a transport layer implementing rs-matter-stack's `NetStack` / `Netif` / `NetCtl` / `Mdns`
-/ `GattPeripheral` traits over **openthread** (Thread netif/UDP/SRP) and **trouble** (BLE
-GATT peripheral). The `NetStack`'s UDP factory is the upstream **`edge-nal-openthread`**
-crate (`OtUdpStack`) - openthread 0.2 dropped its own edge-nal integration, and that glue
-now lives in a dedicated crate, so `src/matter/net.rs` is just a thin wrapper around it.
-The device joins Thread *during* commissioning: the commissioner sends
-the operational dataset via the NetworkCommissioning cluster, and `OtNetCtl` applies it
-to openthread. See `docs/phase4b-glue-design.md` for the adapter/BTP design detail.
+`rs-matter-embassy`'s `EmbassyThreadMatterStack` + `EspThreadDriver::new(IEEE802154, BT)`
+subsume the entire transport: openthread (Thread netif/UDP/SRP) + esp-radio + trouble (BLE
+GATT/BTP) + `edge-nal-openthread` + KV-backed persistence, orchestrated as non-concurrent
+BLE-commission-then-Thread. So `src/matter/` is now just the **device model**:
 
-## Build prerequisites (host)
+- `stack.rs` - assembles `EmbassyThreadMatterStack`, seeds crypto, builds the node +
+  handler chain, wires flash persistence and the factory-reset button, runs the stack.
+- `contact.rs` / `plug.rs` - the two endpoint handlers (Contact Sensor + On/Off plug).
+- plus `src/{link,controller,sensor,actuator,config}.rs` - the autonomous EMF power-monitor
+  / actuator loop, which runs independently of Matter.
 
-`openthread-sys` links a prebuilt OpenThread lib for `riscv32imac-unknown-none-elf`
-(no C build), but `mbedtls-rs-sys` does an **on-the-fly mbedtls C build** because our
-crypto feature subset differs from its prebuilt config. That needs, on PATH:
-- a **RISC-V-capable clang** - Apple's `/usr/bin/clang` has NO riscv32 target; use
-  brew LLVM: `/opt/homebrew/opt/llvm/bin/clang` (+ `LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib`).
-- **cmake** - the system one is fine (3.x or **>= 4.4**). The mbedtls toolchain file sets
-  `CMAKE_SYSTEM_NAME=Generic` so cmake must not add the macOS host `-arch` flag (clang
-  rejects `-arch` for riscv: `unsupported option '-arch' for target 'riscv32'`). NOTE: early
-  cmake **4.x (4.0-4.3)** had a regression that leaked `-arch` despite `Generic`; that was
-  fixed by **4.4**. `build.sh` warns if it sees a 4.0-4.3.
+The device joins Thread *during* commissioning: rs-matter-embassy applies the operational
+dataset the commissioner sends over the NetworkCommissioning cluster. (An earlier version
+hand-rolled all of the above transport glue - `NetStack`/`Netif`/`NetCtl`/`Mdns`/
+`GattPeripheral` adapters over openthread+trouble - now deleted; `docs/phase4b-glue-design.md`
+documents that superseded design.)
 
-**Just use the wrapper** - `./build.sh` sets all of the above:
+## Building (the Makefile)
+
+Build via the **`Makefile`** (it sets up the C-build toolchain env, picks the compile-time
+log level, runs preflight checks, and finds the serial port). `build.sh` is the older
+wrapper it replaces.
+
 ```sh
-./build.sh                 # cargo build
-./build.sh run --release   # flash + monitor
+make                 # cargo build, ESP_LOG=debug   (default target)
+make release         # cargo build --release, ESP_LOG=info
+make flash           # build debug + flash
+make flash-release   # build release + flash
+make run             # build debug + flash + monitor (symbolized panics)
+make monitor         # attach espmonitor to the device
+make clean           # cargo clean + remove esp*.out / chip-tool.out captures
+make clean-cache     # drop only the mbedtls/openthread C-build caches (see below)
+make help            # list targets + the detected serial port
 ```
 
-> Also: a fresh `cargo build` after a failed one can leave a corrupt mbedtls cmake
-> cache (compiler-test failures). `cargo clean -p mbedtls-rs-sys -p openthread-sys`
-> then rebuild.
+- **Log level** is a *compile-time* constant: the firmware calls
+  `esp_println::logger::init_logger_from_env()`, which bakes `ESP_LOG` in at build time, so
+  changing it forces a rebuild. Per-target defaults are `debug` for debug builds and `info`
+  for release; override on any target with `LOG=trace|debug|info` (e.g.
+  `make flash LOG=trace`).
+- **Serial port** is auto-detected (`/dev/cu.usbserial-*` / `cu.usbmodem*`) and exported as
+  `ESPFLASH_PORT`; override with `PORT=/dev/cu.XXX`.
+
+## Build requirements (host)
+
+**macOS only.** The C-build setup below assumes Homebrew LLVM paths; the Makefile hard-fails
+on non-Darwin. Requirements:
+
+- **Rust nightly >= 1.95** (the `10e48dd` esp crates require it). The toolchain is pinned to
+  `nightly` with the `riscv32imac-unknown-none-elf` target + `rust-src` via
+  `rust-toolchain.toml`; `rustup update nightly` if it's too old.
+- **A RISC-V-capable clang** - Apple's `/usr/bin/clang` has **no** riscv32 target, so the
+  `mbedtls-rs-sys` / `openthread-sys` C build needs **Homebrew LLVM**: `brew install llvm`.
+  The Makefile discovers it with `brew --prefix llvm` (Apple-Silicon and Intel) and puts its
+  `bin` on `PATH` + sets `LIBCLANG_PATH` (for bindgen). Override with
+  `make <target> LLVM_PREFIX=/path/to/llvm`.
+- **cmake** - `brew install cmake`. Any 3.x or **>= 4.4** works. The mbedtls toolchain file
+  sets `CMAKE_SYSTEM_NAME=Generic` so cmake must not add the macOS host `-arch` flag (clang
+  rejects `-arch` for riscv: `unsupported option '-arch' for target 'riscv32'`). Early cmake
+  **4.x (4.0-4.3)** had a regression that leaked `-arch` despite `Generic` (fixed in 4.4);
+  the Makefile warns if it sees that range.
+- **espflash** / **espmonitor** - `cargo install espflash espmonitor` (needed for `make
+  flash` / `run` / `monitor`).
+
+The Makefile's `preflight` target checks the OS, cmake, and LLVM before building and emits an
+actionable message (with the `brew`/`cargo install` command) if any is missing.
+
+> `mbedtls-rs-sys` does an **on-the-fly mbedtls C build** (our crypto feature subset differs
+> from its committed prebuilt config), and `openthread-sys` links OpenThread; both are why
+> clang + cmake are required. A fresh build after a failed one can leave a corrupt mbedtls
+> cmake cache (compiler-test / configure failures) - run **`make clean-cache`** (=
+> `cargo clean -p mbedtls-rs-sys -p openthread-sys`) then rebuild, rather than a full
+> `make clean`.
 
 ## Key implementation decisions & constraints
 
 **Commissioning is non-concurrent, not coex.** The H2 has a single 2.4 GHz radio shared
-between BLE and 802.15.4; running both simultaneously is unreliable. The stack therefore
-uses rs-matter-stack's non-concurrent `run` (which advertises
+between BLE and 802.15.4; running both simultaneously is unreliable. `rs-matter-embassy`'s
+`EmbassyThreadMatterStack::run` is non-concurrent (advertises
 `SupportsConcurrentConnection = false`): BLE only while un-commissioned, then Thread-only
-once a fabric exists. `PreexistingWireless` implements both `Thread`+`Gatt` and
-`ThreadCoex`, so it is the same adapters either way - just different orchestration. See
-`src/matter/stack.rs`.
+once a fabric exists. `EspThreadDriver` implements the driver traits for both modes, so this
+is just an orchestration choice, not different code paths.
 
-**Patched esp-radio for H2 802.15.4 RX.** esp-radio 0.18's 802.15.4 receive path is
-broken on the ESP32-H2 (the RX ISR never re-arms after an abort, never delivers on
-`RxDone`, and never generates an enhanced ACK for v2 frames, so OpenThread can never
-attach or stay attached). `[patch.crates-io]` points esp-radio at a fork branch
-(`yvf/esp-hal` @ `rcd/esp-radio-0.18-h2-154-rx-fixes`) - the published 0.18.0 crate plus
-those RX-correctness fixes - instead of a vendored source tree. The clean, upstreamable
-form (against current `main`/beta.0) is on the fork's `fix/h2-ieee802154-receive-path`
-branch; the diff and PR write-up are in `docs/upstream-prs/`.
+**Why these exact versions (stock esp-radio, the `10e48dd` base).** We pin all esp crates to
+esp-hal git rev `10e48dd` - the last commit where **esp-radio is still 0.18 and already has
+#5650** (the FCF AR-bit / frame-version offset fix). This is the base the `rs-matter-embassy`
+esp example uses, and on it **stock esp-radio works end-to-end on H2 + Apple** (BLE commission
+-> attach as child -> SRP register -> operational CASE over Thread), with no local esp-radio
+patch.
 
-Note: there is **no** ext-address byte-order patch. That symptom (unicast frames never
-matching the HW filter) was an `esp-rs/openthread` bug - its platform shim decoded the
-little-endian ext address with `from_be_bytes` - fixed upstream in openthread PR #84.
-Stock esp-radio uses `to_le_bytes` (esp-hal #5314), which is spec-correct, so with
-openthread >= #84 (we pin a recent `main`) the filter matches without any esp-radio
-change. See `docs/upstream-prs/README.md`.
+**Persistence is handled by rs-matter-embassy.** The Matter fabric, the Thread network, and
+the OpenThread SRP key are flash-backed via rs-matter-embassy's `SeqMapKvBlobStore` over the
+`nvs` partition (located at runtime from the esp-idf partition table; `src/matter/stack.rs`
+`get_persistent_store`, wrapping esp-storage's blocking `FlashStorage` in
+`embassy_embedded_hal::adapter::BlockingAsync`). So pairing survives reboots and a
+commissioned device comes straight back up over Thread (no BLE). GPIO5 held 3 s triggers a
+factory reset (`stack.matter().reset_persist(kv)` then software reset).
 
-**Persistence kept off the radio hot path.** The Matter fabric and the OpenThread SRP key
-are flash-backed (`src/matter/kv.rs`, `src/matter/ot_settings.rs`) so pairing survives
-reboots and a commissioned device comes straight back up over Thread (no BLE). esp-storage
-flash writes run with interrupts off (~15 ms/sector), which would starve 802.15.4 during
-SRP registration, so writes are deferred / whitelisted to land in radio lulls.
-
-**BLE version matrix (don't drift).** openthread pins **esp-radio 0.18 -> bt-hci 0.8.1**,
-so BLE must use **trouble-host 0.6** (also bt-hci 0.8.1); trouble `main`/0.7 needs bt-hci
-0.9 and won't typecheck against `BleConnector`. trouble 0.6 uses **embassy-sync 0.7**, so
-this crate's *direct* `embassy-sync` dep is pinned to **0.7** (trouble's `#[gatt_server]`
-macro resolves a bare `embassy_sync` path against our deps). openthread/rs-matter pull
-**embassy-sync 0.8** transitively; the two coexist as long as one version's mutex is never
-passed where the other is expected. esp-radio needs both `ieee802154` and `ble` features.
+**BLE version matrix (don't drift).** openthread pins **esp-radio 0.18 -> bt-hci 0.8.1**, so
+BLE uses **trouble-host 0.6** (also bt-hci 0.8.1); trouble `main`/0.7 needs bt-hci 0.9 and
+won't typecheck against `BleConnector`. rs-matter-embassy owns the trouble/bt-hci dependency
+and the trouble `#[gatt_server]` / `embassy-sync` version juggling internally, so our direct
+`embassy-sync` dep is plain **0.8**. esp-radio needs both `ieee802154` and `ble` features.
 
 **Crypto version conflict (resolved).** `ccm 0.4.4` (pulled by `ieee802154 0.6.1` ->
 esp-radio's 802.15.4 AES-CCM) pins `subtle "=2.4"` exactly, vs rs-matter's `subtle ^2.6`.
@@ -111,6 +148,12 @@ ccm 0.5.0 uses; API-compatible for ccm's constant-time tag compare). A direct
 `subtle = "2.6"` dep forces unification to 2.6.1, so `ccm 0.4.4` (esp-radio) and `ccm 0.5`
 (rs-matter) coexist on one `subtle`. (Previously this was a `vendor/ccm` path copy; the
 fork branch removes the in-repo source tree - the branch is the only change.)
+
+**Crypto RNG seeds from the digital RNG, not the TRNG (ADC1 stays free).** The
+rs-matter-embassy esp example seeds its CSPRNG from `TrngSource::new(RNG, ADC1)` - but this
+firmware needs **ADC1** for the contactless EMF sensor (GPIO4). So `src/matter/stack.rs`
+seeds `default_crypto` from the plain digital `Rng::new()` (a ZST, no ADC1) via a small
+rand_core-0.6 shim (`EspRng`), leaving ADC1 for the sensor.
 
 ## Device credentials (bring-up)
 
