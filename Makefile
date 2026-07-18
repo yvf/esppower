@@ -36,7 +36,12 @@ export PATH          := $(LLVM_PREFIX)/bin:$(PATH)
 export LIBCLANG_PATH := $(LLVM_PREFIX)/lib
 
 # --- serial port (auto-detected; override with PORT=/dev/cu.XXX) -------------------------
-PORT ?= $(shell ls /dev/cu.usbserial-* /dev/cu.usbmodem* 2>/dev/null | head -n1)
+# Prefer the UART-bridge (usbserial-*) device over the native USB-JTAG (usbmodem*): a single
+# `ls` of both globs sorts alphabetically and 'usbmodem' < 'usbserial', so it would wrongly
+# pick the usbmodem port. Fall back to usbmodem only when no usbserial device is present.
+PORT ?= $(shell p=$$(ls /dev/cu.usbserial-* 2>/dev/null | head -n1); \
+                [ -n "$$p" ] || p=$$(ls /dev/cu.usbmodem* 2>/dev/null | head -n1); \
+                echo "$$p")
 # Exported so both `espflash flash` and the cargo runner (espflash flash --monitor) use it.
 # Only exported when non-empty, so an empty value doesn't defeat espflash's auto-detect.
 ifneq ($(strip $(PORT)),)
